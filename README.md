@@ -23,7 +23,7 @@ environment too. Do: echo $LFS_TGT and make sure something sensible is
 returned.
 
 7. Run lfsa as root.  Edit the config file to suit. If requested, the
-sources will be downloaded, the requested LFS book svn'd and the following scripts created in $LFS - chapter05.sh, chapter06.sh, chapter07-asroot.sh, chapter07-chroot.sh, chapter07.sh and chapter08.sh. Don't use 'all'. I don't think it works. So create the scripts one at a time.
+sources will be downloaded, the requested LFS book svn'd and the following scripts created in $LFS - chapter05.sh, chapter06.sh, chapter07-asroot.sh, chapter07-chroot.sh, chapter07.sh and chapter08.sh. You can make all the scripts in one go by setting WHICH_CHAPTER=all, which will create all of the above scripts and chapter10.sh, which installs the kernel.
 
 ** NOTE ** The book is downloaded to /root/LFS_SVN/LFS/<BOOK_VERSION> but the Makefile in this directory has the dump_commands commented out. You will have to edit the Makefile to uncomment them. Then go to /mnt/lfs and delete lfs-commands and lfs-html and rerun ./lfsa to create the book commands properly. Note, you've already svn'd the book, so change BOOK=svn to BOOK=local in the config file.
 
