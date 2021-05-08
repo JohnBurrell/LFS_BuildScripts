@@ -69,6 +69,13 @@ done
 return 1 # not found
 } # end checkRootPart
 #
+# functions to test if device or path is mounted
+# return 0 = found; 1 = not found
+isMounted    () { findmnt -rno SOURCE,TARGET "$1" >/dev/null;} #path or device
+isDevMounted () { findmnt -rno SOURCE        "$1" >/dev/null;} #device only
+isPathMounted() { findmnt -rno        TARGET "$1" >/dev/null;} #path   only
+#where: -r = --raw, -n = --noheadings, -o = --output
+#
 # determine which disks are already mounted
 echo "Looking for partitions that are mounted:"
 if [ "$LFS" = /mnt/lfs ]; then
@@ -126,14 +133,25 @@ if [ "$LFS" = /mnt/lfs ]; then
     exit 1
   fi
   if $isNvme0; then # offer to create a file system on partitions on label, nvme0 or nvme1
-    useNvme1=$nvme1
-    useNvme0=$nvme0
     suite1="${label}3, 4 and 5"
     suite2="${label}6, 7, 8 and 9"
     suite3="${label}10, 11 and 12"
-    suite4="${useNvme1}p1, p2 and p3"
-    suite5="${useNvme1}p4, p5 and p6" # Arch Linux
-    suite6="${useNvme0}p3, p4 and p5"
+    suite4="${nvme1}p1, p2 and p3"
+    suite5="${nvme1}p4, p5 and p6" # Arch Linux
+    case $rootSystem in
+       *p7)
+         suite6="${nvme0}p3, p4 and p5" # Ubuntu
+         one="p3"
+         two="p4"
+         three="p5"
+       ;;
+       *p4)
+         suite6="${nvme0}p6, p7 and p8" # LFS partitions
+         one="p6"
+         two="p7"
+         three="p8"
+       ;;
+    esac
     echo "will chroot into one of the following -"
     echo "Choose one:"
     echo " "
@@ -181,9 +199,9 @@ if [ "$LFS" = /mnt/lfs ]; then
            ;;
            6)
               echo "Will create a file system on partitions $suite6"
-              disk1=p3
-              disk2=p4
-              disk3=p5
+              disk1=$one
+              disk2=$two
+              disk3=$three
               diskLabel=$nvme0
               break
            ;;
@@ -198,22 +216,20 @@ if [ "$LFS" = /mnt/lfs ]; then
     done
 #
   elif $isNvme1; then # offer to create a file system on partitions on label, nvme0 or nvme1
-    useNvme0=$nvme0
-    useNvme1=$nvme1
     suite1="${label}3, 4 and 5"
     suite2="${label}6, 7, 8 and 9"
     suite3="${label}10, 11 and 12"
-    suite4="${useNvme0}p3, p4 and p5" # the Ubuntu OS
-    suite5="${useNvme0}p6, p7 and p8"
+    suite4="${nvme0}p3, p4 and p5" # the Ubuntu OS
+    suite5="${nvme0}p6, p7 and p8" # LFS partitions
     case $rootSystem in
        *p2)
-         suite6="${useNvme1}p4, p5, p6" # the Arch Linux OS
+         suite6="${nvme1}p4, p5, p6" # the Arch Linux OS
          one="p4"
          two="p5"
          three="p6"
        ;;
        *p5)
-         suite6="${useNvme1}p1, p2, p3"
+         suite6="${nvme1}p1, p2, p3" # LFS partitions
          one="p1"
          two="p2"
          three="p3"
@@ -282,32 +298,30 @@ if [ "$LFS" = /mnt/lfs ]; then
         esac
     done
   elif $isDisk; then # offer to create a file system on partitions on remaining label partitions, nvme0 and nvme1
-    useNvme=$nvme0
-    useNvme1=$nvme1
-    case $diskmounted in
+    case $diskMounted in
        *"/dev/${label}4"*)
          suite1="${label}6, 7, 8 and 9"
          suite2="${label}10, 11 and 12"
-         suite3="${useNvme0}p3, p4 and p5" # the Ubuntu OS
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+         suite3="${nvme0}p3, p4 and p5" # the Ubuntu OS
+         suite4="${nvme0}p6, p7 and p8"
+         suite5="${nvme1}p1, p2 and p3"
+         suite6="${nvme1}p4, p5 and p6" # Arch Linux OS
        ;;
        *"/dev/${label}7"*)
          suite1="${label}3, 4 and 5"
          suite2="${label}10, 11 and 12"
-         suite3="${useNvme0}p3, p4 and p5"
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+         suite3="${nvme0}p3, p4 and p5"
+         suite4="${nvme0}p6, p7 and p8"
+         suite5="${nvme1}p1, p2 and p3"
+         suite6="${nvme1}p4, p5 and p6"
        ;;
        *"/dev/${label}11"*)
          suite1="${label}3, 4 and 5"
          suite2="${label}6, 7, 8 and 9"
-         suite3="${useNvme0}p3, p4 and p5"
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+         suite3="${nvme0}p3, p4 and p5"
+         suite4="${nvme0}p6, p7 and p8"
+         suite5="${nvme1}p1, p2 and p3"
+         suite6="${nvme1}p4, p5 and p6"
        ;;
     esac
     echo "will chroot into one of the following -"
@@ -319,7 +333,7 @@ if [ "$LFS" = /mnt/lfs ]; then
         case "$REPLY" in
            1)
               echo "Will create a file system on partitions $suite1"
-              case $diskmounted in
+              case $diskMounted in
                  *"/dev/${label}4"*)
                    disk1=6
                    disk2=7
@@ -343,7 +357,7 @@ if [ "$LFS" = /mnt/lfs ]; then
            ;;
            2)
               echo "Will create a file system on partitions $suite2"
-              case $diskmounted in
+              case $diskMounted in
                  *"/dev/${label}4"*)
                    disk1=10
                    disk2=11
@@ -419,6 +433,12 @@ if [ "$LFS" = /mnt/lfs ]; then
     exit 1
   else
     echo "Running as root, will mount these partitions:"
+# last check to see that these are not already mounted
+    if isDevMounted "/dev/${diskLabel}${disk1}"; then
+      echo "device is already mounted"
+      echo "Abort"
+      exit 1
+    fi
     echo "/dev/${diskLabel}${disk1}"
     echo "/dev/${diskLabel}${disk2}"
     echo "/dev/${diskLabel}${disk3}"
