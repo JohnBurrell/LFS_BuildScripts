@@ -133,20 +133,25 @@ echo "rootIsSDB is $rootIsSDB"
     ((count++))
   done
 #
-# TODO fix the sdb cases
+# TODO test all the sdb disk cases
 #
 # can turn the partition name into a UUID as follows:
 disk0_uuid=$(blkid -o value -s UUID "/dev/${disk[0]}")
 disk2_uuid=$(blkid -o value -s UUID "/dev/${disk[2]}")
 disk4_uuid=$(blkid -o value -s UUID "/dev/${disk[4]}")
-disk9_uuid=$(blkid -o value -s UUID /dev/nvme0n1p9)
+disk9_uuid=$(blkid -o value -s UUID /dev/nvme0n1p9) # swap partition
+if $rootIsSDB; then # use /dev/sdb13 as swap
+  disk13_uuid=$(blkid -o value -s UUID /dev/sdb13)
+  echo "/dev/sdb13 UUID is $disk13_uuid"
+fi
 # following used when /opt is separate partition on sdb
 if [ ! -z "${disk[6]}" ]; then
   disk6_uuid=$(blkid -o value -s UUID "/dev/${disk[6]}")
+  echo "${disk[6]} UUID is $disk6_uuid"
 fi
-echo "$disk[0] UUID is $disk0_uuid"
-echo "$disk[2] UUID is $disk2_uuid"
-echo "$disk[4] UUID is $disk4_uuid"
+echo "${disk[0]} UUID is $disk0_uuid"
+echo "${disk[2]} UUID is $disk2_uuid"
+echo "${disk[4]} UUID is $disk4_uuid"
 echo "/dev/nvme0n1p9 UUID is $disk9_uuid"
 #
   cat > /etc/fstab << "EOF"
@@ -168,6 +173,10 @@ UUID=$disk6_uuid     ${disk[7]}      ext4    rw,relatime       0     2" >> /etc/
 # set the rest of fstab
 echo "# /dev/nvmeon1p9
 UUID=$disk9_uuid      none      swap     defaults         0     0" >> /etc/fstab
+  if $rootIsSDB; then
+    echo "# /dev/sdb13
+UUID=$disk13_uuid      none      swap     defaults         0     0" >> /etc/fstab
+  fi
   cat >> /etc/fstab << "EOF"
 
 # End /etc/fstab

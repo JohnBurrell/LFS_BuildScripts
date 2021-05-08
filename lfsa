@@ -20,7 +20,7 @@ if [ "$LFS" = /mnt/lfs ]; then # check for the directory
     exit 1
   fi
 elif [ "$LFS" = local ]; then
-  LFS="/" # local machine
+  LFS="" # local machine
 else
   echo "Don't recognise $LFS. Edit this script to respond to $LFS."
   exit 1
@@ -127,7 +127,7 @@ RETURN_GT=239 # used in test of which version is later. returned if $1 > $2
 RETURN_EQ=241 # used in compare_versions - returned if versions are equal
 RETURN_FNF=243 # file not found
 RETURN_MTOV=245 # more than one version of file present
-RETURN_NO_CMNDS=247 # not commands found for specified package
+RETURN_NO_CMNDS=247 # no commands found for specified package
 RETURN_FNF=249 # return file not found
 RETURN_PARAM=251  # return parameter from a function on error
 #
@@ -153,14 +153,14 @@ ncc="--no-check-certificate" # options for wget
 #initialize the config variables
 TZ=$TZ
 PAPER_SIZE=$PAPER_SIZE
-LFS_BOOK_LOC_DIR=$HOME/LFS_SVN/$REPO # def local dir for the downloaded book xml
-SVN_URL="svn://svn.linuxfromscratch.org/lfs/" #svn url
+LFS_BOOK_GIT_LOC_DIR=$HOME/LFS_GIT/$REPO # def local dir for the downloaded (git) book xml
+GIT_URL="git://git.linuxfromscratch.org" # git url
 BOOK_VERSION=$BOOK_VERSION
 SOURCES=$SOURCES
 CLEAN_SRC_DIR=$CLEAN_SRC_DIR
 WGETLISTNAME=$WGETLISTNAME
 UPDATESRCFILES=$UPDATESRCFILES
-BOOK=$BOOK
+BOOK_ORIGIN=$BOOK_ORIGIN
 WHICH_CHAPTER=$WHICH_CHAPTER
 PKGUSERFILE=$PKGUSERFILE
 TESTS=$TESTS
@@ -180,8 +180,8 @@ else
   if [ -z "$PAPER_SIZE" ]; then #null
     PAPER_SIZE="A4"
   fi
-  if [ -z "$BOOK" ]; then
-    BOOK="svn"
+  if [ -z "$BOOK_ORIGIN" ]; then
+    BOOK_ORIGIN="git"
   fi
   if [ -z "$BOOK_VERSION" ]; then
     BOOK_VERSION="BOOK"
@@ -228,14 +228,14 @@ else
 # store the values in the new config file
   echo "TZ=$TZ" | tee $cfg 
   echo "PAPER_SIZE=$PAPER_SIZE" | tee -a $cfg
-  echo "LFS_BOOK_LOC_DIR=$HOME/LFS_SVN/$REPO" | tee -a $cfg
-  echo "SVN_URL=svn://svn.linuxfromscratch.org/lfs/" | tee -a $cfg
+  echo "LFS_BOOK_GIT_LOC_DIR=$HOME/LFS_GIT/$REPO" | tee -a $cfg
+  echo "GIT_URL=$GIT_URL" | tee -a $cfg
   echo "BOOK_VERSION=$BOOK_VERSION" | tee -a $cfg
   echo "SOURCES=$SOURCES" | tee -a $cfg
   echo "CLEAN_SRC_DIR=$CLEAN_SRC_DIR" | tee -a $cfg
   echo "WGETLISTNAME=$WGETLISTNAME" | tee -a $cfg
   echo "UPDATESRCFILES=$UPDATESRCFILES" | tee -a $cfg
-  echo "BOOK=$BOOK" | tee -a $cfg
+  echo "BOOK_ORIGIN=$BOOK_ORIGIN" | tee -a $cfg
   echo "WHICH_CHAPTER=$WHICH_CHAPTER" | tee -a $cfg
   echo "PKGUSERFILE=$PKGUSERFILE" | tee -a $cfg
   echo "TESTS=$TESTS" | tee -a $cfg
@@ -290,20 +290,20 @@ case $exit_status in
        PAPER_SIZE)
          display="Probably either letter or A4"
        ;;
-       LFS_BOOK_LOC_DIR)
-         display="Enter the local directory to store the LFS Book"
+       LFS_BOOK_GIT_LOC_DIR)
+         display="If the book source is GIT, enter the local directory to store the LFS Book"
        ;;
-       SVN_URL)
-         display="Enter the svn url of the LFS book"
+       GIT_URL)
+         display="Enter the git url of the LFS book"
        ;;
        BOOK_VERSION)
-         display="LFS book version you want. Type BOOK to get the svn version. To use systemd, set SYSTEMD=yes in the menu. Type blank to choose from a list."
+         display="LFS book version you want. Type BOOK to get the development version. To use systemd, set SYSTEMD=yes in the menu. Type blank to choose from a list."
        ;;
-       BOOK)
-         display="Enter either svn or local (if local the book must be in $LFS_BOOK_LOC_DIR)"
+       BOOK_ORIGIN)
+         display="Enter git to download the book or local if it's already downloaded. If local the book must be in $LFS_BOOK_GIT_LOC_DIR"
        ;;
        WHICH_CHAPTER)
-         display="Enter chapter 5, 6, 7, 8 or 10, e.g. chapter05. Enter all to build them all. Enter update to update the core lfs packages or if using DESTDIR."
+         display="Enter chapter 5, 6, 7, 8 or 10, e.g. chapter05. Enter all to build them all. Enter update to update the core lfs packages."
        ;;
        SOURCES)
 	       display="atinstall, download or local. atinstall means download to the install dir at install time (default). (if local, source files must be in ${SOURCEDIR}/<book_version>)"
@@ -446,100 +446,83 @@ ChkLocalBook () {
 # $2 is the book version
 local localbookdir=$1
 local version=$2
-ChkLocalBookExists $localbookdir $version
-    return_val=$?
-    if [ "$return_val" -eq $RETURN_PARAM ]; then # requested book not present
-      echo "Requested book not present locally. Will need svn it"
-      return $RETURN_PARAM
-    else # book present, test if need to svn an update
+if [ "$version" = BOOK ]; then # check if dir exists
+  if [ -d ${localbookdir}/${version}/lfs ]; then # local book dir exists
+    if [ -e ${localbookdir}/${version}/lfs/.git ]; then # a book exists, check the version
       ChkLocalBookDetails $localbookdir $version
-      return_val=$?
-      if [ "$return_val" -eq $RETURN_PARAM ]; then
-        exit 1
+      retval=$?
+      if [ $retval -eq 0 ]; then
+        return 0 # download the book
       else
-        echo "Book version $version present in $localbookdir"
-        echo "Will use that one."
-        return 0
+        return 1 # requested book alreaded downloaded
       fi
+    else # no .git file found, check if dir is empty
+      if [ $(ls -al ${localbookdir}/${version} | wc -l) -eq 3 ]; then
+        echo "dir ${localbookdir}/${version} is empty"
+      fi
+      return 0 # download the book
     fi
-} # end ChkLocalBook
-#
-ChkLocalBookExists () {
-# $1 is the dir of the book
-# $2 is the book version
-local bookdir=$1
-local version=$2
-#
-unset BookPath
-for BookPath in $( find $bookdir -name index.xml -exec dirname {} ';' )
-do
-  if [ -e $BookPath/.svn ]; then # a book exists, check the version
-    if [ "$BookPath" == "${bookdir}/${version}" ]; then
-      return 0 #requested version is present locally
-    fi
+  else
+    return $RETURN_PARAM # book dir doesn't exist
   fi
-done
-return $RETURN_PARAM #requested book not present locally
-} #end ChkLocalBookExists
+else # book is a release version so do nothing
+  echo "Requested book is present locally so will use it."
+  echo "It is a release version so no update necessary."
+  return $RETURN_PARAM
+fi
+} # end ChkLocalBook
 #
 ChkLocalBookDetails () {
 local bookdir=$1
 local book_version=$2
 #
-if [ "$book_version" = BOOK ]; then
-  # check the last svn date
-  returned_array=( $(LastAccessSvn) )
-  retval=$?
-  if [ $retval -eq 0 ]; then # compare last svn date with today's date
-    if [ ${returned_array[0]} -eq ${returned_array[1]} ]; then
-      echo "The same book has already been downloaded today"
-      echo "To use it, set BOOK=local in the config file."
-      echo "To download it again, delete ${bookdir}/${book_version}"
-      return $RETURN_PARAM
-    else
-      return 0
-    fi
-  else
-    echo "Could not retrieve date of last svn - no entries file found."
-    echo "Will svn it"
-    return 0
-  fi
-else # book is a release version so don't update it
-  echo "Requested book is present locally so will use it."
-  echo "It is a release version so no update necessary."
-  return $RETURN_PARAM
+# check the last commit hash
+pushd ${bookdir}/${version}/lfs
+  local last_commit_local=$(git rev-parse HEAD)
+popd
+# get the last commit hash from the online book
+local last_commit_online=$(git ls-remote  git://git.linuxfromscratch.org/lfs.git  HEAD | cut -f1)
+#echo "last_commit_local is $last_commit_local"
+#echo "last_commit_online is $last_commit_online"
+if [ "$last_commit_local" = "$last_commit_online" ]; then # latest commit already downloaded
+  return 1 # don't download
+else
+  return 0 # download latest version of the book
 fi
 } # end ChkLocalBookDetails
 #
 CleanLocalREPO () { # delete any files in the local directory
 local bookdir=$1
 local book_version=$2
-if [ -d ${bookdir}/${book_version} ]; then #local dir exists
-  if [ "$(ls -A ${bookdir}/${book_version})" ]; then
-    rm -rf ${bookdir}/${book_version} # delete contents of local book dir
+if [ -d ${bookdir}/${book_version} ]; then # local dir exists
+  if [ "$(ls -A ${bookdir}/${book_version})" ]; then # dir contains files
+    rm -rf ${bookdir}/${book_version}* # delete contents of local book dir
   fi
 else  # create it
   install -v -m0755 -d ${bookdir}/${book_version}
 fi
 } # end CleanLocalREPO
 #
-SetSvnUrl () {
-# set the svn url to $1
-SVN_URL=$1
-} # end SetSvnUrl
-#
 WhichLFSBook () {
-local Ignore="bootscripts"
-local lfsVers=$(svn ls ${SVN_URL}tags | grep -vE "$Ignore")
+local f lfsVers lfsBooks
+# get a list of branches from the website
+local lfsVers=$(git ls-remote ${GIT_URL}/lfs.git | awk -F\/ '{print $NF}')
+# limit the books to just a decimal number and nothing else
+for f in $lfsVers; do
+  if [[ $f =~ ^[-+]?([0-9]*\.[0-9]+|[0-9]+\.[0-9]*)$ ]]; then
+    lfsBooks="$lfsBooks $f"$'\n'
+  fi
+done
 PS3="Please select the book version : "
-select TAG in 'Current Development' $lfsVers
+select TAG in 'Current Development' $lfsBooks
 do
   case $TAG in
-    '') echo >&2 "Please select a numbered option";;
+    '') echo >&2 "Please select a numbered option"
+    ;;
     Current*)
       type=trunk
       version=BOOK
-      BOOK_VERSION="Current_Development"
+      BOOK_VERSION=BOOK
     ;;
     ?*)
       type=tags
@@ -547,9 +530,8 @@ do
       BOOK_VERSION=$TAG
     ;;
   esac
-  BOOK_SVN_URL="${SVN_URL}$type/$version"
   echo >&2 "You have selected '$TAG'"
-  echo >&2 "$BOOK_SVN_URL"
+  echo >&2 "$GIT_URL"
   PS3="Is this correct? : "
   select confirm in Yes No
   do
@@ -568,72 +550,99 @@ do
              BEGIN {FS=OFS="="}$1==x {$2=n} {print}
              ' $cfg > $cfg.tmp
              mv $cfg.tmp $cfg
-         break
+	 break
     ;;
   esac
 done
 } #end WhichLFSBook
 #
-SetLFSBook () {
-# note - type and version are global variables
-# $1 is the book version
-local book_version=$1
-case $book_version in
-   Current_Development|BOOK)
-         type=trunk
-         version=BOOK
-   ;;
-   *)
-         type=tags
-         version=$book_version
-   ;;
-esac
-} #end SetLFSBook
+git-info () {
+# a close equivalent to svn info
+
+function check_git_dir {
+  local IS_GIT_DIR=$(git rev-parse --is-inside-work-tree)
+  if [ ! "$IS_GIT_DIR" == "true" ]; then
+    exit 1
+  fi
+}
 #
-LastAccessSvn () {
-local passed_array   # Local variable
-local bookdir=$LFS_BOOK_LOC_DIR
-BookLoc=${bookdir}/${version}
-if [ -e ${BookLoc}/.svn/entries ]; then #check time of last svn
-  EntriesDate=$( stat --printf=%y ${BookLoc}/.svn/entries | awk 'gsub(/-/,"") {printf $1}' )
-  date=$(date +'%Y-%m-%d %H:%M:%S') # today's date
-  read Y M D h m s <<< ${date//[-: ]/ }
-  today=$Y$M$D
-  passed_array=( $EntriesDate $today ) # return the last svn date and today
-  echo "${passed_array[@]}"
-  return 0
-else
-  return $RETURN_PARAM # no entries file found
+function get_last_modified {
+  echo -e -n "$(git show --format="%ci %cr" $1 | head -n 1 | cut -d ' ' -f4-6)"
+}
+#
+check_git_dir
+
+REMOTE=$1
+if [ "$REMOTE" == "" ]; then
+  REMOTE=origin
 fi
-} # end LastAccessSvn
+
+if [ "$(git remote | grep $REMOTE)" == "" ]; then
+  echo "remote '$REMOTE' does not exist"
+  exit 1
+fi
+
+git remote update $REMOTE > /dev/null 2>&1
+
+REMOTE_URL=$(git config --get remote.$REMOTE.url)
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+LAST_REMOTE_COMMIT=""
+REMOTE_LAST_MODIFIED=""
+REMOTE_BRANCH_EXISTS=false
+if [ ! "$(git branch -r  | grep $GROUP/$BRANCH)" == "" ]; then
+  REMOTE_BRANCH_EXISTS=true
+  LAST_REMOTE_COMMIT=$(git rev-parse $REMOTE/$BRANCH)
+  REMOTE_LAST_MODIFIED=$(get_last_modified $REMOTE/$BRANCH)
+fi
+LAST_LOCAL_COMMIT=$(git --no-pager log --max-count=1 | head -n1 | cut -d ' ' -f2)
+LOCAL_LAST_MODIFIED=$(get_last_modified $BRANCH)
+SHORT_COMMIT_HASH=$(git rev-parse --short=9 $BRANCH)
+
+INSYNC=false
+if [ "$LAST_LOCAL_COMMIT" == "$LAST_REMOTE_COMMIT" ]; then
+  INSYNC=true
+fi
+
+cd $(readlink -f .)
+while [ ! -d .git ] && [ ! `pwd` = "/" ]; do cd ..; done
+WORKING_COPY_ROOT_PATH=$(pwd)
+
+echo "Working Copy Root Path: $WORKING_COPY_ROOT_PATH|Remote: $REMOTE|Remote URL: $REMOTE_URL|Branch: $BRANCH|Last Local Commit: $LAST_LOCAL_COMMIT ($LOCAL_LAST_MODIFIED)|Last Remote Commit: $LAST_REMOTE_COMMIT ($REMOTE_LAST_MODIFIED)|Synchronized: $INSYNC|Revision: $SHORT_COMMIT_HASH|"
+#echo "                Remote: $REMOTE"
+#echo "            Remote URL: $REMOTE_URL"
+#echo "                Branch: $BRANCH"
+#echo "     Last Local Commit: $LAST_LOCAL_COMMIT ($LOCAL_LAST_MODIFIED)"
+#if [ "$REMOTE_BRANCH_EXISTS" == "true" ]; then
+#  echo "    Last Remote Commit: $LAST_REMOTE_COMMIT ($REMOTE_LAST_MODIFIED)"
+#  echo "          Synchronized: $INSYNC"
+#else
+#  echo "    Last Remote Commit: -- no remote branch --"
+#  echo "          Synchronized: -- no remote branch --"
+#fi
 #
-CheckoutSVN () {
-local bookdir=$1
-local book_version=$2
+} # end git-info
 #
-Url="${SVN_URL}${type}/${book_version}"
-#
-echo "Will svn the LFS book at $Url"
-echo "and place it in ${bookdir}/${book_version}"
-svn co $Url ${bookdir}/${book_version} # get the requested book
+CheckoutGIT () {
+local gitUrl=$1
+local bookdir=$2
+local book_version=$3
+local reType='^[0-9]+([.][0-9]+)?$' # cope with both integer and decimal book versions
+local source="${gitUrl}/lfs.git"
+local destin="${bookdir}/${book_version}/lfs"
+# download the book
+git clone $source $destin
 # add lfs: to the Makefile
-sed -i '/book:/i lfs: book wget-list\n' ${bookdir}/${book_version}/Makefile
+sed -i '/book:/i lfs: book wget-list\n' "${destin}/Makefile"
+# deal with a released book
+if [[ $book_version =~ $reType ]] ; then
+  echo "will do git checkout $book_version"
+  pushd "${bookdir}/${book_version}/lfs"
+    git checkout $book_version
+  popd
+fi
 #
-} # end CheckoutSVN
-#
-LocalBookFound () {
-# $1 is the book version
-local version=$1
-# note - type is a global variable
-case $version in
-   BOOK)
-     type="trunk"
-   ;;
-   *)
-     type="tags"
-   ;;
-esac
-} # end LocalBookFound
+} # end CheckoutGIT
 #
 DumpCommands () {
 # $1 is the Repository - LFS in this case
@@ -644,29 +653,25 @@ local book_version=$3
 local rev="systemd" # default
 if [ "$SYSTEMD" = no ]; then rev="sysv"; fi
 #
-REPODIR=${bookdir}/${book_version}
 local target=$( echo $1 | awk '{print tolower($1)}')
-SVNINFO="$(svn info $REPODIR | awk '{printf $0"|"}')"
-# Note, tagged | on the end so it can be used as a record separator later
-# e.g.
-# echo $SVNINFO | awk 'BEGIN{ RS = "|" }; {print $0}'
-# will 'reconstitute it
-SVNrevision=$( echo $SVNINFO | awk 'BEGIN{ RS = "|" };/Revision/ {print $0}' )
-#DumpedCommands="/lfs-commands"
-#Dumpedhtml="/lfs-html"
+REPODIR=${bookdir}/${book_version}/${target}
+pushd $REPODIR
+GITINFO=$(git-info)
+popd
+GITrevision=$( echo $GITINFO | awk 'BEGIN{ RS = "|" };/Revision/ {print $0}' )
 if [ ! -d $DumpedCommands ]; then install -vdm755 $DumpedCommands; fi
 if [ ! -d $Dumpedhtml ]; then install -vdm755 $Dumpedhtml; fi
 if [ ! -e ${DumpedCommands}/.revision ]; then touch ${DumpedCommands}/.revision; fi # suppress a 'No such file' warning
 commandRevision=$( cat $DumpedCommands/.revision | awk '/Revision/ {print $0}')
-if [ "$commandRevision" != "$SVNrevision" ]; then # dump the new commands
+if [ "$commandRevision" != "$GITrevision" ]; then # dump the new commands
   rm -rf $DumpedCommands
   rm -rf $Dumpedhtml
   install -vdm755 $DumpedCommands
   install -vdm755 $Dumpedhtml
   pushd $REPODIR
-    make -j1 DUMPDIR=$DumpedCommands BASEDIR=$Dumpedhtml REV=$rev $target dump-commands
+    make -j1 DUMPDIR=$DumpedCommands BASEDIR=$Dumpedhtml REV=$rev $target "dump-commands"
     for dir in $DumpedCommands $Dumpedhtml; do
-      echo $SVNINFO | awk 'BEGIN{ RS = "|" }; {print $0}' > ${dir}/.revision
+      echo $GITINFO | awk 'BEGIN{ RS = "|" }; {print $0}' > ${dir}/.revision
     done
   popd
   mkdir -pv ${SOURCEDIR}/${book_version}
@@ -2061,7 +2066,7 @@ ret_val=$?
 if [ "$ret_val" -eq $RETURN_PARAM ]; then # no commands found
   echo 'echo "No commands found for package '"$PkgName"' in '"$lfscommands"'"
 echo "Check you have the correct book written to '"$lfscommands"'"
-echo "and that '"$PkgName"' is supposed to be installed in '"$Chapter"'"
+echo "and that '"$PkgName"' is supposed to be installed in '"$currentChapter"'"
 echo "This script will fail."
 exit 1' >> $Output
   return $RETURN_NO_CMNDS
@@ -2583,7 +2588,7 @@ EOF
 #
 Header () {
 echo writing the script to: $Output
-if [[ "$as_root" = true && ("$Chapter" = chapter05 || "$Chapter" = chapter06) ]]; then
+if [[ "$as_root" = true && ("$currentChapter" = chapter05 || "$currentChapter" = chapter06) ]]; then
   cat > $Output << "EOF"
 #!/bin/bash -e
 #
@@ -2604,12 +2609,12 @@ if [ $UID -ne 0 ]; then echo Please run this script as root. ; exit 1; fi
 EOF
 fi
 echo "me=\$0
-SVNINFO=\"$SVNINFO\"
+GITINFO=\"$GITINFO\"
 AS_ROOT=$as_root" >> $Output
 if $useDESTDIR; then echo "useDESTDIR=$useDESTDIR" >> $Output; fi
-case "$Chapter" in
+case "$currentChapter" in
    chapter05|chapter06)
-     echo "Chapter=$Chapter
+     echo "Chapter=$currentChapter
 LFS=$LFS" >> $Output
      if ! $as_root; then
        echo "PkgUserDir=\${LFS}${PkgUserDir}" >> $Output
@@ -2640,7 +2645,7 @@ EOF
 sourcedir=$sourcedir
 sourceloc=$sourceloc
 BuildLog=/$BuildLog # no \$LFS here because in chroot
-Chapter=$Chapter
+Chapter=$currentChapter
 wgetopts=\"$wgetopts\"
 ncc=\"--no-check-certificate\"" >> $Output
 if [[ "$Chapter" = update && "$as_root" = false ]]; then
@@ -2752,7 +2757,7 @@ cat >> /etc/pkgusr/bash_profile << "BashProfile"
 complete -o default -o nospace -A user su finger pinky
 export PkgName=$LOGNAME
 EOF
-echo "Chapter=$Chapter
+echo "Chapter=$currentChapter
 testBuilt=\".\${Chapter/apter/}\${LOGNAME}\"" >> $Output
 echo "if [ -e /usr/src/core/\${LOGNAME}/${build} -a ! -e ~/\${testBuilt} ]; then
   cd
@@ -2784,7 +2789,7 @@ cd
 complete -o default -o nospace -A user su finger pinky
 export PkgName=$LOGNAME
 EOF
-echo "Chapter=$Chapter" >> $Output
+echo "Chapter=$currentChapter" >> $Output
 if [ "$Chapter" = update ]; then
   testBuilt=".\${LOGNAME}-\${Chapter}"
 else
@@ -3067,7 +3072,7 @@ elif [ -e ${sourceloc}/${bzip2Patch} ]; then
   cp -v ${sourceloc}/${bzip2Patch} ../
 else # download it
   if [ -e /usr/bin/wget ]; then # wget exists on target machine
-    wget $wgetopts -O ../${bzip2Patch} "http://www.linuxfromscratch.org/patches/lfs/development/${bzip2Patch}"
+    wget $wgetopts $ncc -O ../${bzip2Patch} "http://www.linuxfromscratch.org/patches/lfs/development/${bzip2Patch}"
   else
     echo "/usr/bin/wget not found on the target machine"
     echo "Install it to continue"
@@ -3086,7 +3091,7 @@ elif [ -e ${sourceloc}/${coreutilsPatch} ]; then
   cp -v ${sourceloc}/${coreutilsPatch} ../
 else # download it
   if [ -e /usr/bin/wget ]; then # wget exists on target machine
-    wget $wgetopts -O ../${coreutilsPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${coreutilsPatch}"
+    wget $wgetopts $ncc -O ../${coreutilsPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${coreutilsPatch}"
   else
     echo "/usr/bin/wget not found on the target machine"
     echo "Install it to continue"
@@ -3343,6 +3348,12 @@ chgrp install /lib/udev/rules.d
 chmod g+w,o+t /lib/udev/rules.d
 chgrp install /lib/firmware
 chmod g+w,o+t /lib/firmware
+EOF
+   ;;
+   expat)
+     cat >> $Output << "EOF"
+chgrp install /usr/lib/cmake
+chmod g+w,o+t /usr/lib/cmake
 EOF
    ;;
    file)
@@ -3623,9 +3634,9 @@ chmod 2755 /var/log/journal
 chown 0:0 /usr # had to change it to systemd to allow time update
 systemctl preset-all
 systemctl disable systemd-time-wait-sync.service
-rm -f /etc/sysctl.d/50-pid-max.conf
+rm -fv /etc/sysctl.d/50-pid-max.conf
 rm -fv /usr/lib/lib{blkid,uuid,mount}.so*
-rm -f /usr/lib/tmpfiles.d/systemd-nologin.conf
+rm -fv /usr/lib/tmpfiles.d/systemd-nologin.conf
 EOF
      else
        cat >> $Output << "EOF"
@@ -3734,9 +3745,9 @@ case $PkgName in
     ;;
 esac
 echo "${FuncName}_ () {" >> $Output
-case $Chapter in
-    all|chapter05|chapter06|chapter07|chapter08|chapter10)
-        case "$Chapter" in
+case $currentChapter in
+   chapter05|chapter06|chapter07|chapter08|chapter10)
+        case "$currentChapter" in
             chapter05|chapter06)
               echo "FuncName=$FuncName
 PkgName=$PkgName" >> $Output
@@ -3904,7 +3915,7 @@ EOF
 	    	     SrcName=Python-
 		   ;;
                 esac	 
-                echo "Chapter=$Chapter
+                echo "Chapter=$currentChapter
 AS_ROOT=$as_root
 #" >> $Output
                 cat >> $Output << "EOF"
@@ -4139,7 +4150,7 @@ echo "BuildLog=$BuildLog" > ${PkgUserDir}/${PkgName}/build
 cat >> ${PkgUserDir}/${PkgName}/build << "IPS"
 set +h
 EOF
-                     echo "Chapter=$Chapter
+                     echo "Chapter=$currentChapter
 PkgName=\$LOGNAME
 CUR_DIR=\$HOME" >> $Output
                      echo "SrcName=$SrcName
@@ -4207,7 +4218,7 @@ echo "BuildLog=$BuildLog" > ${PkgUserDir}/${PkgName}/build
 cat >> ${PkgUserDir}/${PkgName}/build << "IPS"
 set +h
 EOF
-        echo "Chapter=$Chapter
+        echo "Chapter=$currentChapter
 PkgName=\$LOGNAME
 CUR_DIR=\$HOME" >> $Output
         echo "SrcName=$SrcName
@@ -4246,7 +4257,7 @@ WriteScript
 closefunction
 } # end of Function
 closefunction () {
-case "$Chapter" in
+case "$currentChapter" in
     chapter05|chapter06)
        cat >> $Output << "EOF"
 touch ${curdir}/../.${Chapter/apter/}${PkgName}
@@ -4680,7 +4691,7 @@ EOF
         kerneldir=${PkgUserDir}/kernel/linux*
         rtrnCom=""
         CmdName=kernel
-        getComms $Chapter $PkgName
+        getComms $currentChapter $PkgName
         for line in ${rtrnCom[@]}; do
           case $line in
              *bzImage*) # cp the bzImage
@@ -5246,7 +5257,7 @@ case $PkgName in
         fi
     ;;
     bash)
-        if [ "$Chapter" = chapter06 ]; then
+        if [ "$currentChapter" = chapter06 ]; then
 	  GetCommands \
 	   | sed -e '/mv $LFS\/usr\/bin\/bash/d' \
 	         -e 's/bin\/sh/usr\/bin\/sh/' \
@@ -5368,7 +5379,7 @@ else
          >> $Output
     ;;
     coreutils)
-	if [ "$Chapter" = chapter06 ]; then
+	if [ "$currentChapter" = chapter06 ]; then
 	  GetCommands \
 	   | sed -e '/mv -v $LFS\/usr\/bin\/{cat/,/mv -v $LFS\/usr\/bin\/chroot/d' \
 	   >> $Output
@@ -5492,6 +5503,11 @@ else
          | sed -e '/make LD_LIBRARY_PATH=\/tools\/lib check/d' \
          >> $Output
     ;;
+    file) # in chapter06 and 08 don't need to mv libmagic
+        GetCommands \
+         | sed -e '/libmagic.so/d' \
+         >> $Output
+    ;;
     findutils)
         if [ "$SYSTEMD" = yes ]; then
           GetCommands \
@@ -5503,7 +5519,7 @@ else
         fi
     ;;
     flex)
-        if [ "$currentChapter" = update ]; then # don't re-create /usr/bin/lex
+        if [ "$Chapter" = update ]; then # don't re-create /usr/bin/lex
           if $useDESTDIR; then
             GetCommands \
              | sed -e 's/ln -sv flex \/usr/ln -sv flex ${CUR_DIR}\/usr/' \
@@ -5518,7 +5534,7 @@ else
         fi
     ;;
     gawk)
-	if [ "$Chapter" = chapter08 ]; then
+	if [ "$currentChapter" = chapter08 ]; then
           if [ "$SYSTEMD" = yes ]; then
             GetCommands \
              | sed -e 's/prefix=\/usr/prefix=\/usr \\\n\              --libexecdir=\/usr\/lib \\\n\              --sysconfdir=\/etc \\\n\              --localstatedir=\/var/' \
@@ -5541,55 +5557,66 @@ else
 }' \
            >> $Output
 	else # gcc not libstdc++
-        if [ "$Chapter" != update ]; then
-        if [ "$SYSTEMD" = yes ]; then
-          if $useDESTDIR; then
-            GetCommands \
-             | sed -e 's/with-system-zlib/with-system-zlib       \\\n\              --libdir=\/usr\/lib \\\n\              --libexecdir=\/usr\/lib/' \
-                   -e '/make install/a\  mv ${CUR_DIR}\/usr\/lib64\/\* ${CUR_DIR}\/usr\/lib\n\  rm -rf ${CUR_DIR}\/usr\/lib64' \
-                   -e 's/ln -sv ..\/usr\/bin\/cpp \/lib/ln -sv ..\/bin\/cpp ${CUR_DIR}\/usr\/lib/' \
-                   -e "/ln -sv gcc/ a set +e" \
-                   -e 's/ln -sv gcc \/usr\/bin\/cc/ln -sv gcc ${CUR_DIR}\/usr\/bin\/cc/' \
-                   -e 's/install -v -dm755 \/usr\/lib\/bfd-plugins/install -v -dm755 ${CUR_DIR}\/usr\/lib\/bfd-plugins/' \
-                   -e "/echo 'main(){}' > dummy.c/,/rm -v dummy.c a.out dummy.log/d" \
-                   -e 's/..\/..\/libexec/../' \
-                   -e 's/so \/usr\/lib\/bfd-plugins/so ${CUR_DIR}\/usr\/lib\/bfd-plugins/' \
-                   -e 's/\/usr\/share\/gdb\/auto-load/${CUR_DIR}\/usr\/share\/gdb\/auto-load/' \
-                   -e 's/\/usr\/lib\/\*gdb.py/${CUR_DIR}\/usr\/lib\/libstdc++.so.6.0.21-gdb.py/' \
-             | awk '{if ($1 == "mkdir" && $2 =="-v")
+          if [ "$Chapter" != update ]; then
+            if [ "$SYSTEMD" = yes ]; then
+              if $useDESTDIR; then
+                GetCommands \
+                 | sed -e 's/with-system-zlib/with-system-zlib       \\\n\              --libdir=\/usr\/lib \\\n\              --libexecdir=\/usr\/lib/' \
+                       -e '/make install/a\  mv ${CUR_DIR}\/usr\/lib64\/\* ${CUR_DIR}\/usr\/lib\n\  rm -rf ${CUR_DIR}\/usr\/lib64' \
+                       -e 's/ln -sv ..\/usr\/bin\/cpp \/lib/ln -sv ..\/bin\/cpp ${CUR_DIR}\/usr\/lib/' \
+                       -e "/ln -sv gcc/ a set +e" \
+                       -e 's/ln -sv gcc \/usr\/bin\/cc/ln -sv gcc ${CUR_DIR}\/usr\/bin\/cc/' \
+                       -e 's/install -v -dm755 \/usr\/lib\/bfd-plugins/install -v -dm755 ${CUR_DIR}\/usr\/lib\/bfd-plugins/' \
+                       -e "/echo 'main(){}' > dummy.c/,/rm -v dummy.c a.out dummy.log/d" \
+                       -e 's/..\/..\/libexec/../' \
+                       -e 's/so \/usr\/lib\/bfd-plugins/so ${CUR_DIR}\/usr\/lib\/bfd-plugins/' \
+                       -e 's/\/usr\/share\/gdb\/auto-load/${CUR_DIR}\/usr\/share\/gdb\/auto-load/' \
+                       -e 's/\/usr\/lib\/\*gdb.py/${CUR_DIR}\/usr\/lib\/libstdc++.so.6.0.21-gdb.py/' \
+                 | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
 print $0;
 }' \
-             >> $Output
-          else
-            if [ "$currentChapter" = update ]; then
-              GetCommands \
-               | sed -e 's/with-system-zlib/with-system-zlib       \\\n\       --libdir=\/usr\/lib --libexecdir=\/usr\/lib/' \
-                     -e '/ln -sv ..\/usr\/bin\/cpp/,/ln -sfv ..\/..\/libexec/d' \
-                     -e 's/\/usr\/lib\/\*gdb.py/\/usr\/lib\/libstdc++.so.6.0.21-gdb.py/' \
-               | awk '{if ($1 == "mkdir" && $2 =="-v")
+                >> $Output
+              else
+                if [ "$Chapter" = update ]; then
+                  GetCommands \
+                   | sed -e 's/with-system-zlib/with-system-zlib       \\\n\       --libdir=\/usr\/lib --libexecdir=\/usr\/lib/' \
+                         -e '/ln -sv ..\/usr\/bin\/cpp/,/ln -sfv ..\/..\/libexec/d' \
+                         -e 's/\/usr\/lib\/\*gdb.py/\/usr\/lib\/libstdc++.so.6.0.21-gdb.py/' \
+                   | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
 print $0;
 }' \
-               >> $Output
-            elif [ "$Chapter" = chapter05 ]; then 
-              GetCommands \
-               | awk '{if ($1 == "mkdir" && $2 =="-v")
+                   >> $Output
+                elif [ "$currentChapter" = chapter05 ]; then 
+                  GetCommands \
+                   | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
 print $0;
 }' \
-               >> $Output
-            else # chapter 6 and 8
+                   >> $Output
+                else # chapter 6 and 8
+                  GetCommands \
+                   | sed -e 's/--prefix=\/usr/--prefix=\/usr \\\n\      --libdir=\/usr\/lib \\\n\      --libexecdir=\/usr\/lib/' \
+                         -e '/chown -v -R root:root/,/\/usr\/lib\/gcc\/\*linux-gnu/d' \
+                         -e 's/ln -sv ..\/usr\/bin\/cpp \/lib/ln -sv ..\/bin\/cpp \/usr\/lib\/cpp/' \
+                         -e 's/\.\.\/libexec\///' \
+                         -e '/ln -sv gcc/a set +e' \
+                         -e 's/cc dummy.c/\/usr\/bin\/cc dummy.c/' \
+                   | awk '{if ($1 == "mkdir" && $2 =="-v")
+print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
+else
+print $0;
+}' \
+                   >> $Output
+                fi # test Chapter = update
+              fi # test useDESTDIR
+            else # SYSTEMD is no
               GetCommands \
-               | sed -e 's/--prefix=\/usr/--prefix=\/usr \\\n\      --libdir=\/usr\/lib \\\n\      --libexecdir=\/usr\/lib/' \
-                     -e '/chown -v -R root:root/,/\/usr\/lib\/gcc\/\*linux-gnu/d' \
-                     -e 's/ln -sv ..\/usr\/bin\/cpp \/lib/ln -sv ..\/bin\/cpp \/usr\/lib\/cpp/' \
-                     -e 's/\.\.\/libexec\///' \
-                     -e '/ln -sv gcc/a set +e' \
-		     -e 's/cc dummy.c/\/usr\/bin\/cc dummy.c/' \
+               | sed -e "/ln -sv gcc/ a set +e" \
                | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
@@ -5597,26 +5624,15 @@ print $0;
 }' \
                >> $Output
             fi
+          else # Chapter is update
+            GetInternalCommands gccComms >> $Output
           fi
-        else # SYSTEMD is no
-          GetCommands \
-           | sed -e "/ln -sv gcc/ a set +e" \
-           | awk '{if ($1 == "mkdir" && $2 =="-v")
-print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
-else
-print $0;
-}' \
-           >> $Output
-        fi
-        else # Chapter is update
-          GetInternalCommands gccComms >> $Output
-        fi
 	fi # end test of gcc or libstdc
         echo "set -e" >> $Output
     ;;
     glibc)
         if [ "$Chapter" != update ]; then
-          if [ "$Chapter" = chapter08 ]; then
+          if [ "$currentChapter" = chapter08 ]; then
 # set up glibc's timezone
 # test if the build dir exists
 # if SYSTEMD=yes, but the book is not systemd, then need to add the nscd systemd files
@@ -5742,7 +5758,7 @@ print $0
         fi
     ;;
     groff)
-        if [ "$currentChapter" = update ]; then
+        if [ "$Chapter" = update ]; then
           GetCommands \
            | sed -e 's/\*\*EDITME<paper_size>EDITME\*\*/'$PAPER_SIZE'/' \
                  -e 's/prefix=\/usr/prefix=\/usr \\\n              --sysconfdir=\/etc \\\n              --with-appresdir=\/etc\/X11\/app-defaults/' \
@@ -5935,7 +5951,7 @@ print $0
         fi
     ;;
     ncurses)
-        if [ "$Chapter" = chapter06 ]; then
+        if [ "$currentChapter" = chapter06 ]; then
           GetCommands \
            | sed -e '/mv -v $LFS\/usr\/lib\/libncursesw.so/d' \
                  -e '/ln -sfv ..\/..\/lib\/\$(readlink/d' \
@@ -6192,6 +6208,7 @@ echo "#\"" >> $Output
                      -e 's/sulogin-path=\/sbin/sulogin-path=\/usr\/bin/' \
                      -e 's/ln -sfv ..\/bin\/systemctl \/sbin/ln -sfv systemctl \/usr\/bin/' \
                      -e 's/systemd \/sbin/systemd \/usr\/bin/' \
+                     -e 's/--strip-components=1 //' \
                      -e '/systemd-machine-id-setup/,/rm -f \/usr\/lib\/tmpfiles.d/d' \
                >> $Output
             else
@@ -6449,16 +6466,19 @@ arrangeOrder () {
 # $1 is the script to arrange
 tmpfile=/tmp/$(date +%d%B%Y_%H:%M)tmp.file
 local IFS=' ' # set the separator to a space
-local WHICH_CHAPTER=$1
-if [ "$WHICH_CHAPTER" = all ]; then
-  scriptToArrange="${LFS}/${ch7script} ${LFS}/${ch8script}"
-elif [ "$WHICH_CHAPTER" = chapter07 ]; then
-  scriptToArrange="${LFS}/${ch7script}"
-elif [ "$WHICH_CHAPTER" = chapter08 ]; then
-  scriptToArrange="${LFS}/${ch8script}"
-elif [ "$WHICH_CHAPTER" = update ]; then
+local chapter=$1
+case $chapter in
+   chapter07)
+     scriptToArrange="${LFS}/${ch7script}"
+   ;;
+   chapter08)
+     scriptToArrange="${LFS}/${ch8script}"
+   ;;
+esac
+if [ "$WHICH_CHAPTER" = update ]; then
   scriptToArrange="${LFS}/${updateScript}"
 fi
+#
 for scrpt in $scriptToArrange; do
   Output=$scrpt
 # match the start line for each function and output it
@@ -6471,7 +6491,7 @@ for scrpt in $scriptToArrange; do
 # TODO - this is a mess, but not sure there is an elegant solution to rearranging
 #
   while read eachFunc; do
-    if [[ "$WHICH_CHAPTER" = chapter08 || "$WHICH_CHAPTER" = update ]]; then
+    if [[ "$chapter" = chapter08 || "$WHICH_CHAPTER" = update ]]; then
       if [[ "$SYSTEMD" = yes ]]; then # don't need sysklogd and sysvinit
         if [[ "$isSystemdBook" = false ]]; then # need to change the order
           if [[ "$eachFunc" = sysklogd_ || "$eachFunc" = sysvinit_ ]]; then
@@ -6583,7 +6603,7 @@ REPODIR=${bookdir}/$book_version
 reqChaps=$WHICH_CHAPTER
 Chapter=$WHICH_CHAPTER # don't change Chapter, change reqChaps
 if [ "$reqChaps" = all ]; then
-  reqChaps=$allChaps
+  reqChaps=$allChaps # doesn't include update
 elif [ "$reqChaps" = update ]; then # want the packages from chapter08
   reqChaps=chapter08
 fi
@@ -6620,10 +6640,10 @@ for currentChapter in $reqChaps; do
     SetPkgVers
     createPkgfile
   else
-    listPackages=$( awk -F\" '/href/ && !/<!--/ {gsub(/\.xml/,"");print $(NF -1)}' ${REPODIR}/${currentChapter}/${currentChapter}.xml )
+    listPackages=$( awk -F\" '/href/ && !/<!--/ {gsub(/\.xml/,"");print $(NF -1)}' ${REPODIR}/lfs/${currentChapter}/${currentChapter}.xml )
   fi
 # if chapter07 remove tcl, expect and dejagnu. They are in the chapter07.xml file
-  if [ "$Chapter" = chapter07 ]; then
+  if [ "$currentChapter" = chapter07 ]; then
     for Name in $listPackages; do
       if [[ "$Name" = tcl || "$Name" = expect || "$Name" = dejagnu ]]; then
 	listPackages=${listPackages/$Name/}
@@ -6631,7 +6651,7 @@ for currentChapter in $reqChaps; do
     done
   fi
 # if chapter06 and installing as pkguser, add openssl and wget so can download sources in chapter07 and 08
-  if [[ "$Chapter" = chapter06 && "$as_root" = false ]]; then
+  if [[ "$currentChapter" = chapter06 && "$as_root" = false ]]; then
     nl='
 '
     listPackages=$listPackages"${nl}"openssl"${nl}"wget""
@@ -6720,7 +6740,7 @@ for currentChapter in $reqChaps; do
               : # do not need any of these
            ;;
            kernfs)
-              if [ "$Chapter" != update ]; then
+              if [ "$currentChapter" = chapter07 ]; then
                 Output=${LFS}/${ch7asroot}
                 Function
               fi
@@ -6768,19 +6788,8 @@ for currentChapter in $reqChaps; do
               SrcName=procps-ng-
               Function
            ;;
-#          revisedchroot)
-#              if [ "$Chapter" != update ]; then
-#                Output=~/LFS-chroot.sh
-# use this once LFS chapter08 is done, again conditionals added
-#                cat ${LFS}/${ch7asroot} \
-#                | awk '/mount -v/ {printf "if [ \"$(grep -q \""$NF"\" /proc/mounts;echo $?)\" != \"0\" ]; then\n  "$0"\nfi\n"}' \
-#                >> $Output
-#                WriteScript
-#                Function
-#              fi
-#          ;;
            revisedchroot|strippingagain)
-               if [ "$Chapter" != update ]; then
+               if [ "$currentChapter" = chapter08 ]; then
                 Function
               fi
            ;;
@@ -6790,7 +6799,7 @@ for currentChapter in $reqChaps; do
            ;;
            vim) # if updating and MAKE_KERNEL=yes, add the kernel after vim
                 Function
-                if [[ "$currentChapter" == update && "$MAKE_KERNEL" == yes ]]; then
+                if [[ "$WHICH_CHAPTER" == update && "$MAKE_KERNEL" == yes ]]; then
                   FuncName=kernel
                   PkgName=kernel
                   SrcName=linux-
@@ -6804,7 +6813,7 @@ for currentChapter in $reqChaps; do
                 Function
            ;;
            *)
-              if [[ "$Chapter" == chapter10 && "$PkgName" == grub ]]; then # want the grub in chapter08 but not the one in chapter10
+              if [[ "$currentChapter" == chapter10 && "$PkgName" == grub ]]; then # want the grub in chapter08 but not the one in chapter10
                 :
               else
                 Function
@@ -6813,8 +6822,18 @@ for currentChapter in $reqChaps; do
         esac
       fi
     fi
-  done
-done
+  done # end of Name in $listPackages
+  if [[ "$currentChapter" != chapter07 && "$currentChapter" != chapter08 ]]; then # 5, 6 and 10
+# create the function name to run - use this if do not use arrangeOrder, e.g. chapter10
+    awk '/_[[:space:]]\(\)[[:space:]]\{/ {print $1}' $Output >> $Output
+  else # 7, 8 and update
+    arrangeOrder $currentChapter
+  fi
+  chmod 700 $Output # make it executable and if chapter07, asroot and chroot as well
+  if [ "$currentChapter" = chapter07 ]; then
+    chmod 700 ${LFS}/${currentChapter}{-asroot.sh,-chroot.sh}
+  fi
+done # end of currentChapter in $reqChaps
 # use the latest src file version
 #latestVers=$linuxvers
 # get the latest kernel from the website
@@ -6855,17 +6874,6 @@ else
   echo "Linux version from the commands is $linuxcomvers"
   echo "Will use latest kernel version which is $latestVers"
   sed -e "s/$linuxcomvers/$latestVers/g" -i $Output
-fi
-#
-if [[ "$Chapter" != chapter07 && "$Chapter" != chapter08 && "$Chapter" != update ]]; then # 5, 6 and 10
-# create the function name to run - use this if do not use arrangeOrder, e.g. chapter10
-  awk '/_[[:space:]]\(\)[[:space:]]\{/ {print $1}' $Output >> $Output
-else # 7, 8 and update
-  arrangeOrder $WHICH_CHAPTER
-fi
-chmod 700 $Output # make it executable and if chapter07, asroot and chroot as well
-if [ "$Chapter" = chapter07 ]; then
-  chmod 700 ${LFS}/${Chapter}{-asroot.sh,-chroot.sh}
 fi
 #
 # remove tests if not requested
@@ -6961,20 +6969,23 @@ fi
 #
 # *** NOTE ***
 # Since Sept 2016 there is one amalgamated development book for sysv and systemd
-# This book has the address http://svn.linuxfromscratch.org/lfs/trunk/BOOK/ and the
 # books are retrieved using REV='sysv' or REV='systemd' in the Makefile.
 #
-# For released versions of LFS, the first amalgamated book release is 7.10
-# This is the only released book that will work here. Previous releases will probably break.
-# The address of this book is http://svn.linuxfromscratch.org/lfs/tags/7.10/
+# For released versions of LFS, the first amalgamated book release was 7.10
+# In September 2020 the book was completely changed with the release of version 10.0
+# As a result, only 10.0 or later will work here. Previous releases WILL NOT WORK.
+#
+# In April 2021 the source of the book was changed from svn to git
+# The book is retrieved using git clone git://git.linuxfromscratch.org/lfs.git
+# To get a specific book do: git checkout <book_version>
 #
 # check WHICH_CHAPTER and DESTDIR
-if [[ "$DESTDIR" = yes && "$WHICH_CHAPTER" != update ]]; then
-  echo "****** NOTE ******"
-  echo "DESTDIR is set to yes but WHICH_CHAPTER is set to $WHICH_CHAPTER"
-  echo "WHICH_Chapter will be set to 'update' in order to continue."
-  WHICH_CHAPTER="update"
-fi
+#if [[ "$DESTDIR" = yes && "$WHICH_CHAPTER" != update ]]; then
+#  echo "****** NOTE ******"
+#  echo "DESTDIR is set to yes but WHICH_CHAPTER is set to $WHICH_CHAPTER"
+#  echo "WHICH_Chapter will be set to 'update' in order to continue."
+#  WHICH_CHAPTER="update"
+#fi
 # useproxy
 useProxy=false
 if [ "$USEPROXY" = yes ]; then useProxy=true; fi
@@ -6992,6 +7003,14 @@ if $single_package; then
     exit 1
   fi
 fi
+# check SOURCES and UPDATESRCFILES
+if [[ "$SOURCES" = atinstall && "$UPDATESRCFILES" = yes ]]; then
+  echo "You've set SOURCES = atinstall. The sources will be downloaded using the"
+  echo "md5sums file from the book. These are the latest versions"
+  echo "UPDATESRCFILES will be set to no"
+  UPDATESRCFILES=no
+fi
+#
 if [ "$MAKE_KERNEL" = yes ]; then # check the .config file is in place
   if [ ! -e ${SOURCEDIR}/.config ]; then
     echo "The Kernel .config file is not in $SOURCEDIR"
@@ -7072,16 +7091,14 @@ if [[ "$AS_ROOT" = yes && "$SOURCES" = atinstall ]]; then
     esac
 fi
 #
-# get the book
+# get the requested book
 #
-bookDir=$LFS_BOOK_LOC_DIR
-# echo "book dir is $bookDir"
+bookDir=$LFS_BOOK_GIT_LOC_DIR
 version=$BOOK_VERSION
-# echo "book version is $version"
 # set version properly
 case $version in
    */)
-     version=${version%?} # remove trailing /
+     version=${version%?} # remove trailing / if present
    ;;
    SYSTEMD|Systemd|systemd) # not okay - abort
      echo "The book version should not be systemd."
@@ -7092,47 +7109,26 @@ case $version in
      version="BOOK"
    ;;
 esac
-# echo "book version is $version"
 if [ ! -d $bookDir ]; then mkdir -pv $bookDir; fi
 #
 isSystemdBook=false # use sysv
-if [ "$BOOK" = svn ]; then
-  echo "Request to svn the book"
-  if [ -z "$SVN_URL" -o "$SVN_URL" = "blank" ]; then
-    SetSvnUrl "svn://svn.linuxfromscratch.org/lfs/"
-  fi
+if [ "$BOOK_ORIGIN" = git ]; then
+  echo "Request to download the book using git"
   if [ "$BOOK_VERSION" != blank ]; then #check if the requested book is present locally
     ChkLocalBook $bookDir $version
-    SetLFSBook $version
-  else #version set to blank so ask for which book
-# note - only books 7.10 and later are guaranteed to work. Previous ones haven't been tested.
-    WhichLFSBook # choose which LFS version to download the xml files
-# version ends with a / so remove it
-    case $version in
-       */)
-         version=${version%?}
-       ;;
-    esac
-    # check if the requested book is already present locally
-    ChkLocalBook $bookDir $version
-  fi
-  CleanLocalREPO $bookDir $version
-  CheckoutSVN $bookDir $version # svn the requested book xml files
-else  # local book
-  if [ "$BOOK_VERSION" != blank ]; then
-    ChkLocalBookExists $bookDir $version
-    return_val=$?
-    if [ "$return_val" -eq $RETURN_PARAM ]; then # no local book found
-      echo "The requested book was not found at $bookDir"
-      echo "Change the location or svn it. Exiting now."
-      exit 1
+    retval=$?
+    if [ $retval -eq $RETURN_PARAM -o $retval -eq 0 ]; then
+      echo "book version $version will be downloaded using git"
+      CleanLocalREPO $bookDir $version
+      CheckoutGIT $GIT_URL $bookDir $version
     else
-      echo "Local book found at $bookDir with requested version $version"
-      LocalBookFound $version # set type for locally stored book xml
+      echo "book version $version already downloaded"
+      echo "will use that one"
     fi
-  else # BOOK=local and version set to blank
+  else # version set to blank so ask for which book
+# note - only books 10.0 and later are guaranteed to work. Previous ones WILL NOT WORK.
     WhichLFSBook
-# version ends with a / so remove it
+# if version ends with a / remove it
     case $version in
        */)
          version=${version%?}
@@ -7140,29 +7136,71 @@ else  # local book
     esac
     # check if the requested book is already present locally
     ChkLocalBook $bookDir $version
-    if [ "$?" -eq $RETURN_PARAM ]; then # local book not found
-      echo "The requested book was not found at $bookDir"
-      echo "Change the location or svn it. Exiting now"
+    retval=$?
+    if [ $retval -eq $RETURN_PARAM -o $retval -eq 0 ]; then
+      echo "book version $version will be downloaded using git"
+      CleanLocalREPO $bookDir $version
+      CheckoutGIT $GIT_URL $bookDir $version
+    else
+      echo "book version $version already downloaded"
+      echo "will use that one"
+    fi    
+  fi
+elif [ "$BOOK_ORIGIN" = local ]; then
+  if [ "$BOOK_VERSION" != blank ]; then
+    ChkLocalBook $bookDir $version
+    retval=$?
+    if [ $retval -eq $RETURN_PARAM ]; then # no local book found
+      echo "Book origin set to local but no version $version was found at $bookDir"
+      echo "Change the location or download it from lfs.git. Exiting now."
       exit 1
+    elif [ $retval -eq 0 ]; then # a later book found compared to the local one
+      echo "There are later commits than the local book"
+      echo "You may want to download the book again"
+    elif [ $retval -eq 1 ]; then # local book found
+      echo "Local book found at $bookDir with requested version $version"
+      echo "will use that one"
+    fi
+  else # BOOK_ORIGIN=local and version set to blank
+    WhichLFSBook
+    # check if the requested book is already present locally
+    ChkLocalBook $bookDir $version
+    retval=$?
+    if [ $retval -eq $RETURN_PARAM ]; then # local book not found
+      echo "The requested book was not found at $bookDir"
+      echo "Change the location or download it from lfs.git. Exiting now"
+      exit 1
+    elif [ $retval -eq 0 ]; then # a later book found compared to the local one
+      echo "There are later commits than the local book"
+      echo "You may want to download the book again"
+    elif [ $retval -eq 1 ]; then # local book found
+      echo "Local book found at $bookDir with requested version $version"
+      echo "will use that one"
     fi
   fi
 fi
-VersToCompare=7.10 # first amalgamated book version
+VersToCompare=10.0 # first book that will work here
 if [ "$SYSTEMD" = yes ]; then
   case $version in
      BOOK)
        isSystemdBook=true
      ;;
-     7.10*)
+     $VersToCompare*)
        isSystemdBook=true
      ;;
-     *systemd*) # old systemd book
-       isSystemdBook=true
+     *systemd*) # old systemd book, will not work
+       echo "a book pre 10.0 requested. This will not work"
+       exit 1
      ;;
-     [0-9]*) # test if the version is > VersToCompare
+     ^[0-9]*) # test if the version is >= VersToCompare
        compare_versions $VersToCompare $version "."
        ret_val=$?
-       if [ $ret_val -eq 0 ]; then isSystemdBook=true; fi
+       if [[ $ret_val -eq 0 || $ret_val -eq $RETURN_EQ ]]; then
+         isSystemdBook=true
+       else
+         echo "book version is $version. Will continue"
+         echo "but this version will not work with these scripts."
+       fi
      ;;
   esac
 fi
