@@ -3252,6 +3252,7 @@ EOF
    bash) #/usr/share/aclocal
      if ! $useDESTDIR; then
         cat >> $Output << "EOF"
+exec /bin/bash --login +h
 chgrp install /usr/share/aclocal
 chmod g+w,o+t /usr/share/aclocal
 chown -h bash:bash /bin/sh
@@ -3874,10 +3875,10 @@ EOF
 		elif [ "$FuncName" = openssl ]; then # set the GID to 10057, the value in Ch8
                   uidVal=10057
                   gidVal=10057
-                elif [ "$FuncName" = wget ]; then # set the GID to 11000, it is deleted at end of LFS
+                elif [ "$FuncName" = wget ]; then # set the GID to 10164, it is deleted at end of LFS
 # because it is reinstalled in BLFS
-                  uidVal=11000
-                  gidVal=11000
+                  uidVal=10164
+                  gidVal=10164
 	        fi
                 echo "uidVal=$uidVal
 gidVal=$gidVal" >> $Output
@@ -4099,9 +4100,11 @@ EOF
 echo ". \${PkgUserDir}/\${PkgName}/.bashrc" >> $Output
                 cat >> $Output << "EOF"
 # check some env variable values
-#echo "LFS is $LFS"
-#echo "LFS_TGT is $LFS_TGT"
+echo "LFS is $LFS"
+echo "LFS_TGT is $LFS_TGT"
 if [ -z "$LFS_TGT" ]; then # not set. This will not work so abort
+  echo "env variable LFS_TGT not set"
+  echo "Aborting"
   exit 1
 fi
 EOF
@@ -4748,10 +4751,10 @@ if ! $AS_ROOT; then chown $PkgName:$PkgName ${PkgUserDir}/${PkgName}/build; fi
 if [ -d ${PkgUserDir}/${PkgName}/.subversion ]; then rm -rf ${PkgUserDir}/${PkgName}/.subversion; fi
 EOF
       if $useDESTDIR; then echo "createPkgfile $linuxvers" >> $Output; fi
-# delete files with UID=11000. used by wget in Ch6
+# delete files with UID=10164. used by wget in Ch6
       cat >> $Output << "EOF"
 # delete files owned by wget  in Ch. 6
-/usr/bin/listdelpkg.sh 11000 11000 delete
+/usr/bin/listdelpkg.sh 10164 10164 delete
 rm -rf /usr/src/core/wget
 # delete the build dir from Ch. 5 and 6
 rm -rf /build
@@ -5270,7 +5273,7 @@ case $PkgName in
                     -e '/chown -Rv/,/EOF/d' \
                     -e '/EOF/d' \
                     -e '/exec \/bin\/bash/i ln -s bash ${CUR_DIR}\/usr\/bin\/sh' \
-                    -e '/mv -vf \/usr\/bin\/bash/,/--login/d' \
+                    -e '/exec \/bin\/bash --login/d' \
               >> $Output
             else
               GetCommands \
@@ -5278,14 +5281,13 @@ case $PkgName in
                     -e '/chown -Rv/,/EOF/d' \
 	            -e '/EOF/d' \
                     -e '/exec \/bin\/bash/i rm -rf \/usr\/bin\/sh\n\ln -s bash \/usr\/bin\/sh' \
-                    -e '/mv -vf \/usr\/bin\/bash/,/--login/d' \
+                    -e '/exec \/bin\/bash --login/d' \
               >> $Output
             fi
           else
             GetCommands \
             | sed -e '/chown -Rv/,/EOF/d' \
          	  -e '/EOF/d' \
-                  -e '/--login/d' \
             >> $Output
           fi
 	fi
@@ -5381,7 +5383,7 @@ else
     coreutils)
 	if [ "$currentChapter" = chapter06 ]; then
 	  GetCommands \
-	   | sed -e '/mv -v $LFS\/usr\/bin\/{cat/,/mv -v $LFS\/usr\/bin\/chroot/d' \
+	   | sed -e '/mv -v $LFS\/usr\/bin\/chroot/d' \
 	   >> $Output
 	else # chapter08
           if $useDESTDIR; then
@@ -5389,7 +5391,7 @@ else
               GetCommands \
                | sed -e 's/uptime/uptime \\\n\              --libexecdir=\/usr\/lib/' \
                      -e "/make NON_ROOT_USERNAME=nobody/,/sed -i '\/dummy\/d' \/etc\/group/d" \
-                     -e '/mv -v \/usr\/bin\/{cat/,/mv -v \/usr\/bin\/chroot/d' \
+                     -e '/mv -v \/usr\/bin\/chroot \/usr\/sbin/d' \
                      -e '/mv -v \/usr\/bin\/{head/d' \
                      -e '/chroot.1/i mkdir -pv ${CUR_DIR}\/usr\/share\/man\/man8' \
                      -e 's/\/usr\/share\/man/${CUR_DIR}\/usr\/share\/man/g' \
@@ -5408,8 +5410,7 @@ else
               GetCommands \
                | sed -e 's/uptime/uptime \\\n\              --libexecdir=\/usr\/lib/' \
                      -e "/make NON_ROOT_USERNAME=nobody/,/sed -i '\/dummy\/d' \/etc\/group/d" \
-                     -e '/mv -v \/usr\/bin\/{cat/,/mv -v \/usr\/bin\/chroot/d' \
-                     -e '/mv -v \/usr\/bin\/{head/d' \
+                     -e '/mv -v \/usr\/bin\/chroot \/usr\/sbin/d' \
                >> $Output
             else
               GetCommands \
@@ -5467,8 +5468,8 @@ else
             GetCommands \
              | sed -e 's/mkdir -v build/mkdir -v e2fsprogs-build/' \
                    -e 's/cd       build/cd e2fsprogs-build/' \
-                   -e 's/bindir=\/bin    /bindir=\/usr\/bin/' \
-                   -e '/with-root-prefix/i\               --libdir=\/usr\/lib       \\\n\               --sbindir=\/usr\/bin      \\' \
+                   -e '/configure --prefix=\/usr/a\              --sysconfdir=/etc \\' \
+                   -e '/enable-elf-shlibs/i\               --libdir=\/usr\/lib       \\\n\               --sbindir=\/usr\/bin      \\' \
                    -e 's/chmod -v u+w \/usr/chmod -v u+w ${CUR_DIR}\/usr/' \
                    -e 's/\/usr\/share\/info/${CUR_DIR}\/usr\/share\/info/g' \
                    -e '/makeinfo -o      doc/,/install-info --dir-file=\/usr/d' \
@@ -5487,8 +5488,8 @@ else
             GetCommands \
              | sed -e 's/mkdir -v build/mkdir -v e2fsprogs-build/' \
                    -e 's/cd       build/cd e2fsprogs-build/' \
-                   -e 's/bindir=\/bin    /bindir=\/usr\/bin/' \
-                   -e '/with-root-prefix/i\               --libdir=\/usr\/lib       \\\n\               --sbindir=\/usr\/bin      \\' \
+                   -e '/configure --prefix=\/usr/a\               --sysconfdir=/etc        \\' \
+                   -e '/enable-elf-shlibs/i\               --libdir=\/usr\/lib       \\\n\               --sbindir=\/usr\/bin      \\' \
              >> $Output
           else
             GetCommands \
