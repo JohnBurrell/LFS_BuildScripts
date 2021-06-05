@@ -15,7 +15,7 @@ diskLabel=$label
 disk4=""
 # which disk is mounted
 isNvme0=false
-isNvme1=flase
+isNvme1=false
 isDisk=false
 clear
 if [ "$LFS" = "" ]; then
@@ -293,32 +293,48 @@ if [ "$LFS" = /mnt/lfs ]; then
         esac
     done
   elif $isDisk; then # offer to mount partitions on remaining label partitions, nvme0 and nvme1
-    useNvme=$nvme0
+    useNvme0=$nvme0
     useNvme1=$nvme1
-    case $diskmounted in
-       *"/dev/${label}4"*)
-         suite1="${label}6, 7, 8 and 9"
-         suite2="${label}10, 11 and 12"
-         suite3="${useNvme0}p3, p4 and p5" # the Ubuntu OS
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+    suite1="${useNvme0}p3, p4 and p5" # the Ubuntu OS
+    suite2="${useNvme0}p6, p7 and p8"
+    suite3="${useNvme1}p1, p2 and p3"
+    suite4="${useNvme1}p4, p5 and p6" # Arch Linux OS
+    case $rootSystem in
+       *sdb4)
+         one="6"
+         two="7"
+         three="8"
+         four="9"
+         suite5="${label}6, 7, 8 and 9"
+         five="10"
+         six="11"
+         seven="12"
+         eight=""
+         suite6="${label}10, 11 and 12"
        ;;
-       *"/dev/${label}7"*)
-         suite1="${label}3, 4 and 5"
-         suite2="${label}10, 11 and 12"
-         suite3="${useNvme0}p3, p4 and p5"
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+       *sdb7)
+         one="3"
+         two="4"
+         three="5"
+         four=""
+         suite5="${label}3, 4 and 5"
+         five="10"
+         six="11"
+         seven="12"
+         eight=""
+         suite6="${label}10, 11 and 12"
        ;;
-       *"/dev/${label}11"*)
-         suite1="${label}3, 4 and 5"
-         suite2="${label}6, 7, 8 and 9"
-         suite3="${useNvme0}p3, p4 and p5"
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+       *sdb11)
+         one="3"
+         two="4"
+         three="5"
+         four=""
+         suite5="${label}3, 4 and 5"
+         five="6"
+         six="7"
+         seven="8"
+         eight="9"
+         suite6="${label}6, 7, 8 and 9"
        ;;
     esac
     echo "Choose one:"
@@ -328,85 +344,53 @@ if [ "$LFS" = /mnt/lfs ]; then
     select opt in "${options[@]}" "Quit"; do
         case "$REPLY" in
            1)
-              echo "Will mount partitions $suite1"
-              case $diskmounted in
-                 *"/dev/${label}4"*)
-                   disk1=6
-                   disk2=7
-                   disk3=8
-                   disk4=9
-                   break
-                 ;;
-                 *"/dev/${label}7"*)
-                   disk1=3
-                   disk2=4
-                   disk3=5
-                   break
-                 ;;
-                 *"/dev/${label}11"*)
-                   disk1=3
-                   disk2=4
-                   disk3=5
-                   break
-                 ;;
-              esac
-           ;;
-           2)
-              echo "Will mount partitions $suite2"
-              case $diskmounted in
-                 *"/dev/${label}4"*)
-                   disk1=10
-                   disk2=11
-                   disk3=12
-                   break
-                 ;;
-                 *"/dev/${label}7"*)
-                   disk1=10
-                   disk2=11
-                   disk3=12
-                   break
-                 ;;
-                 *"/dev/${label}11"*)
-                   disk1=6
-                   disk2=7
-                   disk3=8
-                   disk4=9
-                   break
-                 ;;
-              esac
-           ;;
-           3)
-              echo "Will mount partitions $suite3"
+              echo "Will create a file system on partitions $suite1"
               disk1=p3
               disk2=p4
               disk3=p5
               diskLabel=$nvme0
               break
            ;;
-           4)
-              echo "Will mount partitions $suite4"
+           2)
+              echo "Will create a file system on partitions $suite2"
               disk1=p6
               disk2=p7
               disk3=p8
               diskLabel=$nvme0
               break
            ;;
-           5)
-              echo "Will mount partitions $suite5"
+           3)
+              echo "Will create a file system on partitions $suite3"
               disk1=p1
               disk2=p2
               disk3=p3
               diskLabel=$nvme1
               break
            ;;
-           6)
-              echo "Will mount partitions $suite6"
+           4)
+              echo "Will create a file system on partitions $suite4"
               disk1=p4
               disk2=p5
               disk3=p6
               diskLabel=$nvme1
               break
            ;;
+           5)
+              echo "Will create a file system on partitions $suite5"
+              disk1=$one
+              disk2=$two
+              disk3=$three
+              if [ ! -z "$four" ]; then disk4=$five; fi
+              break
+           ;;
+           6)
+              echo "Will create a file system on partitions $suite6"
+              disk1=$five
+              disk2=$six
+              disk3=$seven
+              if [ ! -z "$eight" ]; then disk4=$eight; fi
+              break
+           ;;    
            $((${#options[@]}+1)))
               echo "Okay, will exit"
               exit 1

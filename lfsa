@@ -3252,7 +3252,9 @@ EOF
    bash) #/usr/share/aclocal
      if ! $useDESTDIR; then
         cat >> $Output << "EOF"
+# run the newly compiled bash prog
 exec /bin/bash --login +h
+# this means you'll have to exit from bash and run the chapter08.sh script again
 chgrp install /usr/share/aclocal
 chmod g+w,o+t /usr/share/aclocal
 chown -h bash:bash /bin/sh
@@ -3875,10 +3877,10 @@ EOF
 		elif [ "$FuncName" = openssl ]; then # set the GID to 10057, the value in Ch8
                   uidVal=10057
                   gidVal=10057
-                elif [ "$FuncName" = wget ]; then # set the GID to 10164, it is deleted at end of LFS
+                elif [ "$FuncName" = wget ]; then # set the GID to 10163, it is deleted at end of LFS
 # because it is reinstalled in BLFS
-                  uidVal=10164
-                  gidVal=10164
+                  uidVal=10163
+                  gidVal=10163
 	        fi
                 echo "uidVal=$uidVal
 gidVal=$gidVal" >> $Output
@@ -4354,6 +4356,8 @@ rm -rf $LFS/usr/share/locale/* # don't need these in chapter 5 or 6
 mkdir -pv $LFS/usr/share/info # for m4 in chap 6
 chgrp install $LFS/usr/share/info
 chmod 1775 $LFS/usr/share/info
+chgrp install $LFS/var/lib
+chmod 1775 $LFS/var/lib
 # run this as root and set resulting files owned by gcc
 LFS_TGT="x86_64-lfs-linux-gnu"
 EOF
@@ -4751,10 +4755,10 @@ if ! $AS_ROOT; then chown $PkgName:$PkgName ${PkgUserDir}/${PkgName}/build; fi
 if [ -d ${PkgUserDir}/${PkgName}/.subversion ]; then rm -rf ${PkgUserDir}/${PkgName}/.subversion; fi
 EOF
       if $useDESTDIR; then echo "createPkgfile $linuxvers" >> $Output; fi
-# delete files with UID=10164. used by wget in Ch6
+# delete files with UID=10163. used by wget in Ch6
       cat >> $Output << "EOF"
 # delete files owned by wget  in Ch. 6
-/usr/bin/listdelpkg.sh 10164 10164 delete
+/usr/bin/listdelpkg.sh 10163 10163 delete
 rm -rf /usr/src/core/wget
 # delete the build dir from Ch. 5 and 6
 rm -rf /build
