@@ -1,12 +1,13 @@
 #!/bin/bash
 #
+# NOTE - disk sdb no longer exists - left the code in place in case it's resurrected
 # There are three disks here: disk sdb has 10 partitions with 3 operating systems - 
 # 3,4,5 has one OS
 # 6,7,8 and 9 has another OS
 # and 10,11 and 12 has another OS
-# M.2 ssd nvme0n1 is an nvme ssd with 9 partitions: 1 is an EFI system partition and 2 is a BIOS boot partition
-# 3,4 and 5 has Ubuntu loaded and 6,7,and 8 is for an LFS OS. Partition 9 is swap
-# M.2 ssd nvme1n1 has 6 partitions. 1,2 and 3 is for another LFS OS. 4,5 and 6 has Arch Linux loaded.
+# M.2 ssd nvme0n1 is an nvme ssd with 13 partitions: 1 is an EFI system partition and 2 is a BIOS boot partition
+# 3,4 and 5 has Ubuntu loaded, 6,7,and 8 is Arch (gnome) and 9,10,11 and 12 is for an LFS (Gnome) OS. Partition 13 is swap
+# M.2 ssd nvme1n1 has 7 available partitions and one swap. (p1 - p5 is for Windows 10). p6 - p8 is for Arch (xfce, or whatever is current). P9 - p12 is for an LFS OS, usually to match whatever is loaded on p6 - p8. Partition p13 is swap
 #
 as_root=true
 if [ $UID -ne 0 ]; then
@@ -23,7 +24,7 @@ diskLabel=$label
 disk4=""
 # which disk is mounted
 isNvme0=false
-isNvme1=flase
+isNvme1=false
 isDisk=false
 clear
 if [ "$LFS" = "" ]; then
@@ -135,31 +136,50 @@ if [ "$LFS" = /mnt/lfs ]; then
     exit 1
   fi
   if $isNvme0; then # offer to create a file system on partitions on label, nvme0 or nvme1
-    useNvme1=$nvme1
-    useNvme0=$nvme0
-    suite1="${label}3, 4 and 5"
-    suite2="${label}6, 7, 8 and 9"
-    suite3="${label}10, 11 and 12"
-    suite4="${useNvme1}p1, p2 and p3"
-    suite5="${useNvme1}p4, p5 and p6" # Arch Linux OS
+    suite1="${label}3, 4 and 5 (LFS)"
+    suite2="${label}6, 7, 8 and 9 (LFS)"
+    suite3="${label}10, 11 and 12 (Arch KF5 plasma)"
+    suite4="${nvme1}p6, p7 and p8 (Arch xfce)"
+    suite5="${nvme1}p9, p10, p11 and p12 (LFS xfce)"
     case $rootSystem in
-       *p7)
-         suite6="${useNvme0}p3, p4, p5" # ubuntu OS
+       *p7) # Arch is mounted
+         suite6="${nvme0}p3, p4 and p5 (Ubuntu)"
          one="p3"
          two="p4"
          three="p5"
+         suite7="${nvme0}p9, p10, p11 and p12 (LFS Gnome)"
+         four="p9"
+         five="p10"
+         six="p11"
+         seven="p12"
        ;;
-       *p4)
-         suite6="${useNvme0}p6, p7, p8"
+       *p4) # Ububtu is mounted
+         suite6="${nvme0}p6, p7 and p8 (Arch)"
          one="p6"
          two="p7"
          three="p8"
+         suite7="${nvme0}p9, p10, p11 and p12 (LFS Gnome)"
+         four="p9"
+         five="p10"
+         six="p11"
+         seven="p12"
+       ;;
+       *p10) # LFS is mounted
+         suite6="${nvme0}p3, p4 and p5 (Ubuntu)"
+         one="p3"
+         two="p4"
+         three="p5"
+         suite7="${nvme0}p6, p7 and p8 (Arch)"
+         four="p6"
+         five="p7"
+         six="p8"
+         seven=""
        ;;
     esac
     echo "Choose one:"
     echo " "
     PS3="> "
-    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6")
+    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6" "$suite7")
     select opt in "${options[@]}" "Quit"; do
         case "$REPLY" in
            1)
@@ -186,17 +206,18 @@ if [ "$LFS" = /mnt/lfs ]; then
            ;;
            4)
               echo "Will create a file system on partitions $suite4"
-              disk1=p1
-              disk2=p2
-              disk3=p3
+              disk1=p6
+              disk2=p7
+              disk3=p8
               diskLabel=$nvme1
               break
            ;;
            5)
               echo "Will create a file system on partitions $suite5"
-              disk1=p4
-              disk2=p5
-              disk3=p6
+              disk1=p9
+              disk2=p10
+              disk3=p11
+              disk4=p12
               diskLabel=$nvme1
               break
            ;;
@@ -208,42 +229,52 @@ if [ "$LFS" = /mnt/lfs ]; then
               diskLabel=$nvme0
               break
            ;;
+           7)
+              echo "Will create a file system on partitions  $suite7"
+              disk1=$four
+              disk2=$five
+              disk3=$six
+              disk4=$seven
+              diskLabel=$nvme0
+              break
+           ;;
            $((${#options[@]}+1)))
               echo "Okay, will exit"
               exit 1
            ;;
-           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6 or 7"
+           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6, 7 or 8"
               :
            ;;
         esac
     done
 #
   elif $isNvme1; then # offer to create a file system on partitions on label, nvme0 or nvme1
-    useNvme0=$nvme0
-    useNvme1=$nvme1
-    suite1="${label}3, 4 and 5"
-    suite2="${label}6, 7, 8 and 9"
-    suite3="${label}10, 11 and 12"
-    suite4="${useNvme0}p3, p4 and p5" # the Ubuntu OS
-    suite5="${useNvme0}p6, p7 and p8"
+    suite1="${label}3, 4 and 5 (LFS)"
+    suite2="${label}6, 7, 8 and 9 (LFS)"
+    suite3="${label}10, 11 and 12 (Arch KF5 plasma)"
+    suite4="${nvme0}p3, p4 and p5 (Ubuntu)"
+    suite5="${nvme0}p6, p7 and p8 (Arch)"
+    suite6="${nvme0}p9, p10, p11 and p12 (LFS)"
     case $rootSystem in
-       *p2)
-         suite6="${useNvme1}p4, p5, p6" # the Arch Linux OS
-         one="p4"
-         two="p5"
-         three="p6"
+       *p7) # Arch is mounted
+         suite7="${nvme1}p9, p10, p11, p12 (LFS)"
+         one="p9"
+         two="p10"
+         three="p11"
+         four="p12"
        ;;
-       *p5)
-         suite6="${useNvme1}p1, p2, p3"
-         one="p1"
-         two="p2"
-         three="p3"
+       *p10) # LFS is mounted
+         suite7="${nvme1}p6, p7, p8 (Arch xfce)"
+         one="p6"
+         two="p7"
+         three="p8"
+         four=""
        ;;
     esac
     echo "Choose one:"
     echo " "
     PS3="> "
-    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6")
+    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6" "$suite7")
     select opt in "${options[@]}" "Quit"; do
         case "$REPLY" in
            1)
@@ -285,10 +316,20 @@ if [ "$LFS" = /mnt/lfs ]; then
               break
            ;;
            6)
-              echo "Will create a file system on partitions $suite5"
+              echo "Will create a file system on partitions $suite6"
+              disk1=p9
+              disk2=p10
+              disk3=p11
+              disk4=p12
+              diskLabel=$nvme0
+              break
+           ;;
+           7)
+              echo "Will create a file system on partitions $suite7"
               disk1=$one
               disk2=$two
               disk3=$three
+              disk4=$four
               diskLabel=$nvme1
               break
            ;;
@@ -296,99 +337,83 @@ if [ "$LFS" = /mnt/lfs ]; then
               echo "Okay, will exit"
               exit 1
            ;;
-           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6 or 7"
+           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6, 7 or 8"
               :
            ;;
         esac
     done
   elif $isDisk; then # offer to create a file system on partitions on remaining label partitions, nvme0 and nvme1
-    useNvme=$nvme0
-    useNvme1=$nvme1
-    case $diskmounted in
-       *"/dev/${label}4"*)
-         suite1="${label}6, 7, 8 and 9"
-         suite2="${label}10, 11 and 12"
-         suite3="${useNvme0}p3, p4 and p5" # the Ubuntu OS
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+    suite1="${nvme0}p3, p4 and p5 (Ububtu)"
+    suite2="${nvme0}p6, p7 and p8 (Arch)"
+    suite3="${nvme0}p9, p10, p11 and p12 (LFS)"
+    suite4="${nvme1}p6, p7 and p8 (Arch xfce)"
+    suite5="${nvme1}p9, p10, p11 and p12 (LFS)"
+    case $rootSystem in
+       *sdb4)
+         one="6"
+         two="7"
+         three="8"
+         four="9"
+         suite6="${label}6, 7, 8 and 9"
+         five="10"
+         six="11"
+         seven="12"
+         eight=""
+         suite7="${label}10, 11 and 12"
        ;;
-       *"/dev/${label}7"*)
-         suite1="${label}3, 4 and 5"
-         suite2="${label}10, 11 and 12"
-         suite3="${useNvme0}p3, p4 and p5"
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+       *sdb7)
+         one="3"
+         two="4"
+         three="5"
+         four=""
+         suite6="${label}3, 4 and 5"
+         five="10"
+         six="11"
+         seven="12"
+         eight=""
+         suite7="${label}10, 11 and 12"
        ;;
-       *"/dev/${label}11"*)
-         suite1="${label}3, 4 and 5"
-         suite2="${label}6, 7, 8 and 9"
-         suite3="${useNvme0}p3, p4 and p5"
-         suite4="${useNvme0}p6, p7 and p8"
-         suite5="${useNvme1}p1, p2 and p3"
-         suite6="${useNvme1}p4, p5 and p6"
+       *sdb11)
+         one="3"
+         two="4"
+         three="5"
+         four=""
+         suite6="${label}3, 4 and 5"
+	 five="6"
+         six="7"
+         seven="8"
+         eight="9"
+         suite7="${label}6, 7, 8 and 9"
        ;;
     esac
     echo "Choose one:"
     echo " "
     PS3="> "
-    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6")
+    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6" "$suite7")
     select opt in "${options[@]}" "Quit"; do
         case "$REPLY" in
            1)
               echo "Will create a file system on partitions $suite1"
-              case $diskmounted in
-                 *"/dev/${label}4"*)
-                   disk1=6
-                   disk2=7
-                   disk3=8
-                   disk4=9
-                   break
-                 ;;
-                 *"/dev/${label}7"*)
-                   disk1=3
-                   disk2=4
-                   disk3=5
-                   break
-                 ;;
-                 *"/dev/${label}11"*)
-                   disk1=3
-                   disk2=4
-                   disk3=5
-                   break
-                 ;;
-              esac
-           ;;
-           2)
-              echo "Will create a file system on partitions $suite2"
-              case $diskmounted in
-                 *"/dev/${label}4"*)
-                   disk1=10
-                   disk2=11
-                   disk3=12
-                   break
-                 ;;
-                 *"/dev/${label}7"*)
-                   disk1=10
-                   disk2=11
-                   disk3=12
-                   break
-                 ;;
-                 *"/dev/${label}11"*)
-                   disk1=6
-                   disk2=7
-                   disk3=8
-                   disk4=9
-                   break
-                 ;;
-              esac
-           ;;
-           3)
-              echo "Will create a file system on partitions $suite3"
               disk1=p3
               disk2=p4
               disk3=p5
+              diskLabel=$nvme0
+              break
+           ;;
+           2)
+              echo "Will create a file system on partitions $suite2"
+              disk1=p6
+              disk2=p7
+              disk3=p8
+              diskLabel=$nvme0
+              break
+           ;;
+           3)
+              echo "Will create a file system on partitions $suite3"
+              disk1=p9
+              disk2=p10
+              disk3=p11
+              disk4=p12
               diskLabel=$nvme0
               break
            ;;
@@ -397,30 +422,39 @@ if [ "$LFS" = /mnt/lfs ]; then
               disk1=p6
               disk2=p7
               disk3=p8
-              diskLabel=$nvme0
+              diskLabel=$nvme1
               break
            ;;
            5)
               echo "Will create a file system on partitions $suite5"
-              disk1=p1
-              disk2=p2
-              disk3=p3
+              disk1=p9
+              disk2=p10
+              disk3=p11
+              disk4=p12
               diskLabel=$nvme1
               break
            ;;
            6)
               echo "Will create a file system on partitions $suite6"
-              disk1=p4
-              disk2=p5
-              disk3=p6
-              diskLabel=$nvme1
+              disk1=$one
+              disk2=$two
+              disk3=$three
+              if [ ! -z "$four" ]; then disk4=$four; fi
+              break
+           ;;
+           7)
+              echo "Will create a file system on partitions $suite7"
+              disk1=$five
+              disk2=$six
+              disk3=$seven
+              if [ ! -z "$eight" ]; then disk4=$eight; fi
               break
            ;;
            $((${#options[@]}+1)))
               echo "Okay, will exit"
               exit 1
            ;;
-           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6 or 7"
+           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6, 7 or 8"
               :
            ;;
         esac
@@ -453,6 +487,16 @@ if [ "$LFS" = /mnt/lfs ]; then
     mkfs.ext4 -jv /dev/${diskLabel}${disk3}
     if [ ! -z "$disk4" ]; then
       mkfs.ext4 -jv /dev/${diskLabel}${disk4}
+    fi
+  fi
+  if [ -e /dev/${diskLabel}p13 ]; then
+    echo "swap is partition /dev/${diskLabel}p13"
+# try and create the swap partition - it may be mounted already
+    echo "check if it's mounted"
+    if [[ $(swapon -s | grep -ci "/dev/${diskLabel}p13" ) -gt 0 ]]; then 
+      echo "swap partition /dev/${diskLabel}p13 is mounted"
+    else 
+      /usr/bin/mkswap -c --verbose /dev/${diskLabel}p13
     fi
   fi
 else
