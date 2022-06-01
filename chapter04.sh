@@ -60,30 +60,30 @@ HOMEDIR=/home/john/lfs # on the host
 #  echo "Run Chapter 5 and 6 to create $LFS/tools and copy it to the host"
 #fi
 # create the sources subdir
-mkdir -pv $LFS/sources/BOOK
+mkdir -pv $LFS/sources/trunk
 # fill it with the sources
-if [ -d $HOMEDIR/sources/BOOK ]; then
-  echo "Copy the sources/BOOK dir to $LFS? (Y/n)"
+if [ -d $HOMEDIR/sources/trunk ]; then
+  echo "Copy the sources/trunk dir to $LFS? (Y/n)"
   read reply
     case $reply in
        [yY]|[yY][Ee][Ss])
-         cp -r $HOMEDIR/sources/BOOK/* $LFS/sources/BOOK/
-	 echo "Copied sources from $HOMEDIR/sources/BOOK to $LFS/sources/BOOK"
+         cp -r $HOMEDIR/sources/trunk/* $LFS/sources/trunk/
+	 echo "Copied sources from $HOMEDIR/sources/trunk to $LFS/sources/trunk"
        ;;
        [nN]|[nN][Oo])
-         echo "Continuing without copying the sources/BOOK dir"
+         echo "Continuing without copying the sources/trunk dir"
        ;;
        *)
-         cp -r $HOMEDIR/sources/BOOK/* $LFS/sources/BOOK/
+         cp -r $HOMEDIR/sources/trunk/* $LFS/sources/trunk/
        ;;
     esac
 else
   echo "No $HOMEDIR/sources dir found. Can't copy the sources."
 # check if the sources dir contains files
-  if [ -n "$(ls -A ${LFS}/sources/BOOK 2>/dev/null)" ]; then
-    echo "$LFS/sources/BOOK contains files"
+  if [ -n "$(ls -A ${LFS}/sources/trunk 2>/dev/null)" ]; then
+    echo "$LFS/sources/trunk contains files"
   else
-    echo "$LFS/sources/BOOK is empty"
+    echo "$LFS/sources/trunk is empty"
   fi
 fi
 # cp the pkguser file

@@ -1,12 +1,14 @@
 #!/bin/bash
 #
+# NOTE - disk sdb no longer exists - left the code in place in case it's resurrected
 # There are three disks here: disk sdb has 10 partitions with 3 operating systems - 
-# sdb3 ,4, 5 has one OS
-# sdb6, 7, 8 and 9 has another OS
-# and sdb10, 11 and 12 has another OS
-# M.2 ssd nvme0n1 is an nvme ssd with 9 partitions: 1 is an EFI system partition and 2 is a BIOS boot partition
-# 3, 4 and 5 has Ubuntu loaded and 6, 7 and 8 is for an LFS OS. Partition 9 is swap
-# M.2 ssd nvme1n1 has 6 partitions. 1, 2 and 3 is for another LFS OS. 4, 5 and 6 has Arch Linux loaded.
+# 3,4,5 has one OS
+# 6,7,8 and 9 has another OS
+# and 10,11 and 12 has another OS
+# M.2 ssd nvme0n1 is an nvme ssd with 13 partitions: 1 is an EFI system partition and 2 is a BIOS boot partition
+# 3,4 and 5 has Ubuntu loaded, 6,7,and 8 is Arch (gnome) and 9,10,11 and 12 is for an LFS (Gnome) OS. Partition 13 is swap
+# M.2 ssd nvme1n1 has 7 available partitions and one swap. (p1 - p5 is for Windows 10). p6 - p8 is for Arch (xfce, or whatever is current). P9 - p12 is for an LFS OS, usually to match whatever is loaded on p6 - p8. Partition p13 is swap
+
 # create the fstab file
 nvme0="nvme0n1p"
 nvme1="nvme1n1p"
@@ -95,6 +97,21 @@ if [ "$LFS" = /mnt/lfs ]; then
     echo "disk sdb is not mounted"
   fi
 #
+# declare associative array where the keys are the disk-names and the values are the mount-points
+storDisk=""
+declare -A mntPointDisk
+for part in ${diskMounted[@]}; do
+  if [ -z "$storDisk" ]; then # store the disk name
+    storDisk=$part
+  else # key stored so fill array
+    mntPointDisk[$storDisk]=$part
+    storDisk=""
+  fi
+done
+echo "disk name and mount-point"
+for KK in "${!mntPointDisk[@]}"; do
+  echo "$KK --- ${mntPointDisk[$KK]}"
+done
 # get the root partition to identify the partition to use
   rootSystem=$(findmnt -n -o SOURCE /)
   echo "root partition is $rootSystem"
@@ -127,57 +144,67 @@ echo "** Check that only one of the following is true **"
 echo "rootIsNvme0n1 is $rootIsNvme0n1"
 echo "rootIsNvme1n1 is $rootIsNvme1n1"
 echo "rootIsSDB is $rootIsSDB"
-  count=0
-  for partnum in ${diskMounted[@]}; do
-    disk[count]="${partnum}"
-    ((count++))
-  done
 #
-# TODO test all the sdb disk cases
+# NOTE - haven't tested all the sdb disk cases
 #
 # can turn the partition name into a UUID as follows:
-disk0_uuid=$(blkid -o value -s UUID "/dev/${disk[0]}")
-disk2_uuid=$(blkid -o value -s UUID "/dev/${disk[2]}")
-disk4_uuid=$(blkid -o value -s UUID "/dev/${disk[4]}")
-disk9_uuid=$(blkid -o value -s UUID /dev/nvme0n1p9) # swap partition
-if $rootIsSDB; then # use /dev/sdb13 as swap
-  disk13_uuid=$(blkid -o value -s UUID /dev/sdb13)
-  echo "/dev/sdb13 UUID is $disk13_uuid"
-fi
-# following used when /opt is separate partition on sdb
-if [ ! -z "${disk[6]}" ]; then
-  disk6_uuid=$(blkid -o value -s UUID "/dev/${disk[6]}")
-  echo "${disk[6]} UUID is $disk6_uuid"
-fi
-echo "${disk[0]} UUID is $disk0_uuid"
-echo "${disk[2]} UUID is $disk2_uuid"
-echo "${disk[4]} UUID is $disk4_uuid"
-echo "/dev/nvme0n1p9 UUID is $disk9_uuid"
-#
+count=0
+for KK in "${!mntPointDisk[@]}"; do
+  disk_uuid[count]=$(blkid -o value -s UUID "/dev/${KK}")
+  echo "${mntPointDisk[$KK]} UUID is ${disk_uuid[count]}"
+  ((count++))
+done
+disk_uuid[count]=$(blkid -o value -s UUID /dev/nvme0n1p13) # swap partition
+echo "/dev/nvme0n1p13 UUID is ${disk_uuid[count]}"
+((count++))
+disk_uuid[count]=$(blkid -o value -s UUID /dev/nvme1n1p13) # swap partition
+echo "/dev/nvme1n1p13 UUID is ${disk_uuid[count]}"
+((count++))
+disk_uuid[count]=$(blkid -o value -s UUID /dev/sdb13)
+echo "/dev/sdb13 UUID is ${disk_uuid[count]}"
+# write the fstab file
   cat > /etc/fstab << "EOF"
 # Begin /etc/fstab
 
 # file system                              mount-point   type     options        dump   fsck
 #                                                                                order
 EOF
-  echo "# /dev/${disk[0]}
-UUID=$disk0_uuid     ${disk[1]}          ext4    rw,relatime       0     1
-# /dev/${disk[2]}
-UUID=$disk2_uuid     ${disk[3]}      ext4    rw,relatime       0     2
-# /dev/${disk[4]}
-UUID=$disk4_uuid     ${disk[5]}      ext4    rw,relatime       0     2" >> /etc/fstab
-  if [ ! -z "${disk[6]}" ]; then
-    echo "# /dev/${disk[6]}
-UUID=$disk6_uuid     ${disk[7]}      ext4    rw,relatime       0     2" >> /etc/fstab
-  fi
+count=0
+fsckVal=1
+dumporder=0
+# printf formats
+fstabformat="%-46s %-9s %-8s %-12s %5s %5s\n"
+thedisc="%-16s\n"
+if [ "$nvme0n1" = true -o "$nvme1n1" = true ]; then
+  for KK in "${!mntPointDisk[@]}"; do
+    printf "$thedisc" "# /dev/$KK" >> /etc/fstab
+    printf "$fstabformat" "UUID=${disk_uuid[count++]}" "${mntPointDisk[$KK]}" "ext4" "rw,relatime" "$dumporder" "$fsckVal" >> /etc/fstab
+    fsckVal=2
+  done
+else # using disk sdb
+  for KK in "${!mntPointDisk[@]}"; do
+    echo "# /dev/$KK
+UUID=${disk_uuid[count++]}     ${mntPointDisk[$KK]} $buffer     ext4    rw,relatime       0     $fsckVal" >> /etc/fstab
+    ((count++))
+    if [ $count -eq 1 ]; then
+      buffer="    "
+      fsckVal=2
+    elif [ $count -eq 3 ]; then
+      buffer=" "
+      fsckVal=2
+    else
+      buffer=""
+    fi
+  done
+fi
+#
 # set the rest of fstab
-echo "# /dev/nvmeon1p9
-UUID=$disk9_uuid      none      swap     defaults         0     0" >> /etc/fstab
-  if $rootIsSDB; then
-    echo "# /dev/sdb13
-UUID=$disk13_uuid      none      swap     defaults         0     0" >> /etc/fstab
-  fi
-  cat >> /etc/fstab << "EOF"
+echo "# /dev/nvme0n1p13
+UUID=${disk_uuid[count]}      none      swap     defaults         0     0" >> /etc/fstab
+((count++))
+echo "# /dev/nvme1n1p13
+UUID=${disk_uuid[count]}      none      swap     defaults         0     0" >> /etc/fstab
+cat >> /etc/fstab << "EOF"
 
 # End /etc/fstab
 EOF

@@ -13,8 +13,8 @@ if [ ! -d $LFS ]; then
   echo "Run chapter02.sh before Chapter03.sh"
   exit 1
 fi
-if [ ! -d $LFS/sources/BOOK ]; then
-  mkdir -pv $LFS/sources/BOOK
+if [ ! -d $LFS/sources/trunk ]; then
+  mkdir -pv $LFS/sources/trunk
 fi
 if [ ! -d $LFS/tools ]; then
   mkdir -v $LFS/tools
@@ -37,30 +37,33 @@ mkdir -pv $LFS/{etc,opt,run,var,usr/{,bin,lib}}
 case $(uname -m) in
   x86_64) mkdir -pv $LFS/lib64 ;;
 esac
-if [ ! -L $LFS/bin ]; then
-  echo "create the symlink $LFS/bin"
-  ln -sf usr/bin $LFS/bin
-else
-  echo "symlink $LFS/bin exists"
-fi
-if [ ! -L $LFS/lib ]; then
-  echo "create the symlink $LFS/lib"
-  ln -sf usr/lib $LFS/lib
-else
-  echo "symlink $LFS/lib exists"
-fi
-if [ ! -L $LFS/sbin ]; then
-  echo "create the symlink $LFS/sbin"
-  ln -sf usr/bin $LFS/sbin
-else
-  echo "symlink $LFS/sbin exists"
-fi
-if [ ! -L $LFS/usr/sbin ]; then
-  echo "create the symlink $LFS/usr/sbin"
-  ln -sf bin $LFS/usr/sbin
-else
-  echo "symlink $LFS/usr/sbin exists"
-fi
+# create the symlinks for /bin, /lib, /sbin and /usr/sbin to route everything through /usr
+for i in bin lib sbin; do
+  case $i in
+     bin|lib)
+       if [ ! -L $LFS/$i ]; then
+         echo "create the symlink $LFS/$i"
+         ln -sv usr/$i $LFS/$i
+       else
+         echo "symlink $LFS/$i exists"
+       fi
+     ;;
+     sbin) # set symlink for /sbin and /usr/sbin
+       if [ ! -L $LFS/$i ]; then
+         echo "create the symlink $LFS/$i"
+         ln -sv usr/bin $LFS/$i
+       else
+         echo "symlink $LFS/$i exists"
+       fi
+       if [ ! -L "${LFS}/usr/${i}" ]; then
+         echo "create the symlink ${LFS}/usr/${i}"
+         ln -sv bin "${LFS}/usr/${i}"
+       else
+         echo "symlink ${LFS}/usr/${i} exists"
+       fi
+     ;;
+  esac
+done
 # create the user lfs
 ret=false
 getent passwd lfs > /dev/null 2>&1 && ret=true
