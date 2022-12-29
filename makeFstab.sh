@@ -1,13 +1,14 @@
 #!/bin/bash
 #
-# NOTE - disk sdb no longer exists - left the code in place in case it's resurrected
+# NOTE - disk sdb (an ssd) no longer exists - left the code in place in case it's resurrected
+# disk sda is used for swap space to spare the nvme disks
 # There are three disks here: disk sdb has 10 partitions with 3 operating systems - 
 # 3,4,5 has one OS
 # 6,7,8 and 9 has another OS
 # and 10,11 and 12 has another OS
-# M.2 ssd nvme0n1 is an nvme ssd with 13 partitions: 1 is an EFI system partition and 2 is a BIOS boot partition
-# 3,4 and 5 has Ubuntu loaded, 6,7,and 8 is Arch (gnome) and 9,10,11 and 12 is for an LFS (Gnome) OS. Partition 13 is swap
-# M.2 ssd nvme1n1 has 7 available partitions and one swap. (p1 - p5 is for Windows 10). p6 - p8 is for Arch (xfce, or whatever is current). P9 - p12 is for an LFS OS, usually to match whatever is loaded on p6 - p8. Partition p13 is swap
+# M.2 ssd nvme0n1 is an nvme ssd with 12 partitions: 1 is an EFI system partition and 2 is a BIOS boot partition
+# 3,4 and 5 has Ubuntu loaded, 6,7,and 8 is Arch (gnome) and 9,10,11 and 12 is for an LFS (Gnome) OS.
+# M.2 ssd nvme1n1 has 7 available partitions. (p1 - p5 is for Windows 11 and are not changed). p6 - p8 is for Arch (xfce, or whatever is current). P9 - p12 is for an LFS OS, usually to match whatever is loaded on p6 - p8.
 
 # create the fstab file
 nvme0="nvme0n1p"
@@ -154,15 +155,11 @@ for KK in "${!mntPointDisk[@]}"; do
   echo "${mntPointDisk[$KK]} UUID is ${disk_uuid[count]}"
   ((count++))
 done
-disk_uuid[count]=$(blkid -o value -s UUID /dev/nvme0n1p13) # swap partition
-echo "/dev/nvme0n1p13 UUID is ${disk_uuid[count]}"
+# the swap partition on sda1
+disk_uuid[count]=$(blkid -o value -s UUID /dev/sda1) # swap partition
+echo "/dev/sda1 UUID is ${disk_uuid[count]}"
 ((count++))
-disk_uuid[count]=$(blkid -o value -s UUID /dev/nvme1n1p13) # swap partition
-echo "/dev/nvme1n1p13 UUID is ${disk_uuid[count]}"
-((count++))
-disk_uuid[count]=$(blkid -o value -s UUID /dev/sdb13)
-echo "/dev/sdb13 UUID is ${disk_uuid[count]}"
-# write the fstab file
+# begin the fstab file
   cat > /etc/fstab << "EOF"
 # Begin /etc/fstab
 
@@ -198,11 +195,8 @@ UUID=${disk_uuid[count++]}     ${mntPointDisk[$KK]} $buffer     ext4    rw,relat
   done
 fi
 #
-# set the rest of fstab
-echo "# /dev/nvme0n1p13
-UUID=${disk_uuid[count]}      none      swap     defaults         0     0" >> /etc/fstab
-((count++))
-echo "# /dev/nvme1n1p13
+# set swap on the rest of fstab
+echo "# /dev/sda1
 UUID=${disk_uuid[count]}      none      swap     defaults         0     0" >> /etc/fstab
 cat >> /etc/fstab << "EOF"
 
