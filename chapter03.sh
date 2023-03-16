@@ -103,9 +103,18 @@ if $ispkguser; then # does the install group exist
 # change the minimal dir layout to install directories
   chgrp install $LFS/{etc,lib64,var,tools,usr/{,bin,lib}}
   chmod 1775 $LFS/{etc,lib64,var,tools,usr/{,bin,lib}}
+# create the files that are in tools/pkguser/installdirs.lst and make them install dirs
+mkdir -pv $LFS/{opt,run,usr/{include,share/{,dict,doc,info,locale,misc,terminfo,zoneinfo,man/{,man1,man2,man3,man4,man5,man6,man7,man8}}},var/{lib,opt,cache,log,local/{,la-files}}}
+chgrp install $LFS/{opt,run,usr/{include,share/{,dict,doc,info,locale,misc,terminfo,zoneinfo,man/{,man1,man2,man3,man4,man5,man6,man7,man8}}},var/{lib,opt,cache,log,local/{,la-files}}}
+chmod 1775 $LFS/{opt,run,usr/{include,share/{,dict,doc,info,locale,misc,terminfo,zoneinfo,man/{,man1,man2,man3,man4,man5,man6,man7,man8}}},var/{lib,opt,cache,log,local/{,la-files}}}
 else # as root
   echo "installing as root"
   echo "will set the owner of the directories as lfs"
+# make sure the whole directory hierarchy is owned by the user lfs
+chown -R lfs:lfs $LFS/{usr,lib,var,etc,bin,sbin,sources,tools}
+case $(uname -m) in
+  x86_64) chown -R lfs:lfs $LFS/lib64 ;;
+esac
 # create the environmant
   cat > /home/lfs/.bash_profile << "EOF"
 exec env -i HOME=$HOME TERM=$TERM PS1='\u:\w\$ ' /bin/bash
@@ -125,7 +134,3 @@ EOF
 # user lfs exists so set the directories to be owned by lfs
   chown -v lfs $LFS/{etc,lib64,var,tools,usr/{,bin,lib}}
 fi
-# create the files that are in tools/pkguser/installdirs.lst and make them install dirs
-#mkdir -pv $LFS/{opt,run,usr/{include,share/{,dict,doc,info,locale,misc,terminfo,zoneinfo,man/{,man1,man2,man3,man4,man5,man6,man7,man8}}},var/{lib,opt,cache,log,local/{,la-files}}}
-#chgrp install $LFS/{opt,run,usr/{include,share/{,dict,doc,info,locale,misc,terminfo,zoneinfo,man/{,man1,man2,man3,man4,man5,man6,man7,man8}}},var/{lib,opt,cache,log,local/{,la-files}}}
-#chmod 1775 $LFS/{opt,run,usr/{include,share/{,dict,doc,info,locale,misc,terminfo,zoneinfo,man/{,man1,man2,man3,man4,man5,man6,man7,man8}}},var/{lib,opt,cache,log,local/{,la-files}}}

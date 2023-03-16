@@ -106,4 +106,5 @@ cat > /etc/systemd/system/getty@tty1.service.d/noclear.conf << EOF
 [Service]
 TTYVTDisallocate=no
 EOF
+umask 0022
 echo "Now run makeFstab.sh to create /etc/fstab"
