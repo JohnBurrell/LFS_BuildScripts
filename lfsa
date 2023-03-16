@@ -2152,12 +2152,12 @@ local pkgname=${2:-""}
 if [ -e ${DumpedCommands}/${chapreq}/*-${CmdName} ]; then
   curfile=${DumpedCommands}/${chapreq}/*-${CmdName}
 else
-  msg "in function getComms - did not find commands"
-  msg "DumpedCommands is $DumpedCommands"
-  msg "chapreq is $chapreq"
-  msg "CmdName is $CmdName"
+  if $printit; then msg "in function getComms - did not find commands"; fi
+  if $printit; then msg "DumpedCommands is $DumpedCommands"; fi
+  if $printit; then msg "chapreq is $chapreq"; fi
+  if $printit; then msg "CmdName is $CmdName"; fi
   curfile=${DumpedCommands}/${chapreq}/*-${CmdName}
-  msg "curfile is ${curfile[@]}"
+  if $printit; then msg "curfile is ${curfile[@]}"; fi
   return $RETURN_PARAM
 fi
 local IFS='
@@ -2232,15 +2232,20 @@ else
   contline=0
   foundCase=false # keep track of a case statement
   foundPushd=false # used to find the corresponding popd
+#
   for line in "${commandScripts[@]}"; do
-    case "$line" in
+    if [ "$PkgName" = changingowner -o "$PkgName" = kernfs ]; then # write the line
+      echo "$line"
+      ((countg++))
+    else
+      case "$line" in
          sed*)
            echo "$line"
            ((countg++))
          ;;
          *pushd*) # ncurses has this in chapter06
 	   foundPushd=true
-	   countg=$countg-$contline
+	   countg=$(expr $countg - $contline)
 	   break
 	 ;;
          *"case \$(uname -m) in"*)
@@ -2249,7 +2254,7 @@ else
              echo "$line"
              ((countg++))
            else # case statement in findutils
-             countg=$countg-$contline
+             countg=$(expr $countg - $contline)
              break
            fi
          ;;
@@ -2266,45 +2271,45 @@ else
              ((countg++))
              foundCase=false
            else # something wrong
-             msg "found an esac but not the case statement"
-             msg "PkgName is $PkgName"
-             msg "INVESTIGATE"
+             echo "found an esac but not the case statement"
+             echo "PkgName is $PkgName"
+             echo "INVESTIGATE"
              exit 1
            fi
          ;;
          *configure*|*Configure*) #Perl has Configure!
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          *"config --prefix="*) # openssl
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          *"cp services protocols"*) # iana-etc copy
            break
          ;;
          *"LANG=en_US.UTF-8"*) # systemd has this at start of configure
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          "meson --prefix="*)
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          "perl Makefile"*) # xml-parser is a perl module
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          "pip3 install"*)
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          "pip3 wheel -w dist "*) # for meson
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          "python3 -m pip install "*) # for installer
-           countg=$countg-$contline
+           countg=$(expr $countg - $contline)
            break
          ;;
          make*) #begins with make
@@ -2341,13 +2346,15 @@ else
               ;;
             esac
          ;;
-    esac
+      esac
+    fi
   done
+  if [[ $countg -lt $numclines ]]; then # output more commands
+    rtr=""
+    combineScripts commandScripts[@] buildScripts[@]
+  fi
 #
-  rtr=""
-  combineScripts commandScripts[@] buildScripts[@]
-#
-  if [ $countg -lt $((numclines)) ]; then # output remaining commands
+  if [[ $countg -lt $numclines ]]; then # output remaining commands
     contin=false # switch for a continuation line
     contline=0   # # of continuation lines found
     ifsharedoc=false # test for an if block with a /usr/share/doc in it
@@ -2440,7 +2447,7 @@ else
                       ;;
                   esac
                 else # ifsharedoc is true - this shouldn't happen
-                  msg "ifsharedoc is true - *** INVESTIGATE ***"
+                  echo "ifsharedoc is true - *** INVESTIGATE ***"
                   exit 1
                 fi
          ;;
@@ -2565,8 +2572,8 @@ ncursescom[6]="            --enable-widec          \\"
 ncursescom[7]="            --with-pkg-config-libdir=/usr/lib/pkgconfig"
 ncursescom[8]="make"
 ncursescom[9]="make DESTDIR=\"\$CUR_DIR\" install"
-ncursescom[10]="install -vm755 \"\${CUR_DIR}\"/usr/lib/libncursesw.so.6.3 /usr/lib"
-ncursescom[11]="rm -v \"\${CUR_DIR}\"/usr/lib/{libncursesw.so.6.3,libncurses++w.a}"
+ncursescom[10]="install -vm755 \"\${CUR_DIR}\"/usr/lib/libncursesw.so.${ncursesvers} /usr/lib"
+ncursescom[11]="rm -v \"\${CUR_DIR}\"/usr/lib/{libncursesw.so.${ncursesvers},libncurses++w.a}"
 ncursescom[12]="set +e"
 ncursescom[13]="pushd ../usr > /dev/null"
 ncursescom[14]="cp -a * /usr"
@@ -3091,11 +3098,15 @@ EOF
      else # as root
        cat >> $Output << "EOF"  
 buildDir=${LFS}/build
+if [ ! -d ${LFS}/build ]; then
+  mkdir -v ${LFS}/build
+fi
 BuildLog=/LFS-build.log
 sourcedir=/sources
 sourceloc=${sourcedir}/trunk
 #
 EOF
+
        CreateBuildDir
        unpack05
      fi
@@ -3116,22 +3127,24 @@ chmod 664 $BuildLog" >> $Output
        fi
        if $as_root; then
          CreateBuildDirasroot
-         unpack07
+         unpack
        else
          setUserEnv # used in the package user home dir to make sure .bash_profile and .bashrc are symlinks to /etc/pkgusr dir
          resetBashProfile # make sure Chapter is set in /etc/pkgusr
        fi
        if [ "$Chapter" = update ]; then
          if $installBinTarfile; then # don't need to clean the pkg directory
-           msg "installing binary tarfile(s) so don't use cleanPkgDir"
+           if $printit; then msg "installing binary tarfile(s) so don't use cleanPkgDir"; fi
          else # write the cleanpkgdir function
            cleanPkgDir
          fi
        fi
 # if using DESTDIR and not installing files, need to create the binary tarfile
-       if $createBinFile; then createPkgFile; fi # write createPkgFile
-       if [ "$Chapter" = chapter07 ]; then # creating dirs so need createDirsFilesPkgFile
-         createDirsFilesPkgFile
+       if $createBinFile; then
+         createPkgFile # write createPkgFile
+         if [ "$Chapter" = chapter07 ]; then # creating dirs so need createDirsFilesPkgFile
+           createDirsFilesPkgFile
+         fi
        fi
    ;;
 esac
@@ -3370,6 +3383,12 @@ if ! \$usePip; then cd ..; fi
 rm -rf \$curdir
 rm -rf .wget-hsts .cache"
 } # end of delSrcFile
+#
+# for py3-flit-core and py3-installer don't need the rm -rf lines as there's no source file
+delPy3File () {
+echo "cd \$curdir
+if ! \$usePip; then cd ..; fi"
+} # end of delPy3File
 #
 setUserEnv () {
 cat >> $Output << "EOF"
@@ -3745,7 +3764,7 @@ echo $outputURL
 #
 getUrlSrcDnld () {
 # get the url to download the src file and, if src downloaded already, the location to copy it from
-# $1 is either unpack or unpack07, depending either ! root or root install, respectively
+# $1 is unpack
 local unpackType=$1
 # $2 is the package name
 local pkgname=$2
@@ -3800,13 +3819,21 @@ for srcURL in ${sourceURL[@]}; do
             if [ "$Chapter" = chapter08 ]; then useThisSrcLoc="${buildDir}/${pkgname}"; fi
             if [ "$buildDir" = $preChrootBuild ]; then useThisSrcLoc="${buildDir}/linuxheaders"; fi
             if [[ "$Chapter" = chapter10 || "$Chapter" = update ]]; then
+msg "useThisKernelVers is $useThisKernelVers"
 # make sure the kernel series is correct in the URL
+msg "srcURL is $srcURL"
               local curLinux=${srcURL##*/}
+msg "curLinux is $curLinux"
               local kernelSeries=${useThisKernelVers%%.*}
+msg "kernelSeries is $kernelSeries"
               local newSeries="v${kernelSeries}.x"
+msg "newSeries is $newSeries"
               srcURL=$(changeURL $srcURL 7 $newSeries)
+msg "srcURL is $srcURL"
               srcURL=${srcURL/$curLinux}
+msg "srcURL is $srcURL"
               srcURL="${srcURL}${srcTarfile}"
+msg "srcURL is $srcURL"
             fi
           ;;
           make) # get make not automake
@@ -3847,44 +3874,44 @@ case $FuncName in
 #fi
 #EOF
 #   ;;
-   bash) # need the patch
-     echo "bashPatch=\"$bashPatch\"" >> $Output
-     cat >> $Output << "EOF"
-if [ -e ${CUR_DIR}/${bashPatch} ]; then
-  echo "patch already in place - will use that"
-elif [ -e ${sourceloc}/${bashPatch} ]; then
-  cp -v ${sourceloc}/${bashPatch} ../
-else # download it
-  if [ -e /usr/bin/wget ]; then # wget exists on target machine
-    wget $wgetopts $ncc -O ../${bashPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${bashPatch}"
-  else
-    echo "/usr/bin/wget not found on the target machine"
-    echo "Install it to continue"
-    echo "Aborting"
-    exit 1
-  fi
-fi
-EOF
-   ;;
-   binutils) # need the patch
-     echo "binutilsPatch=\"$binutilsPatch\"" >> $Output
-     cat >> $Output << "EOF"
-if [ -e ${CUR_DIR}/${binutilsPatch} ]; then
-  echo "patch already in place - will use that"
-elif [ -e ${sourceloc}/${binutilsPatch} ]; then
-  cp -v ${sourceloc}/${binutilsPatch} ../
-else # download it
-  if [ -e /usr/bin/wget ]; then # wget exists on target machine
-    wget $wgetopts $ncc -O ../${binutilsPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${binutilsPatch}"
-  else
-    echo "/usr/bin/wget not found on the target machine"
-    echo "Install it to continue"
-    echo "Aborting"
-    exit 1
-  fi
-fi
-EOF
-   ;;
+#   bash) # need the patch
+#     echo "bashPatch=\"$bashPatch\"" >> $Output
+#     cat >> $Output << "EOF"
+#if [ -e ${CUR_DIR}/${bashPatch} ]; then
+#  echo "patch already in place - will use that"
+#elif [ -e ${sourceloc}/${bashPatch} ]; then
+#  cp -v ${sourceloc}/${bashPatch} ../
+#else # download it
+#  if [ -e /usr/bin/wget ]; then # wget exists on target machine
+#    wget $wgetopts $ncc -O ../${bashPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${bashPatch}"
+#  else
+#    echo "/usr/bin/wget not found on the target machine"
+#    echo "Install it to continue"
+#    echo "Aborting"
+#    exit 1
+#  fi
+#fi
+#EOF
+#   ;;
+#   binutils) # need the patch
+#     echo "binutilsPatch=\"$binutilsPatch\"" >> $Output
+#     cat >> $Output << "EOF"
+#if [ -e ${CUR_DIR}/${binutilsPatch} ]; then
+#  echo "patch already in place - will use that"
+#elif [ -e ${sourceloc}/${binutilsPatch} ]; then
+#  cp -v ${sourceloc}/${binutilsPatch} ../
+#else # download it
+#  if [ -e /usr/bin/wget ]; then # wget exists on target machine
+#    wget $wgetopts $ncc -O ../${binutilsPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${binutilsPatch}"
+#  else
+#    echo "/usr/bin/wget not found on the target machine"
+#    echo "Install it to continue"
+#    echo "Aborting"
+#    exit 1
+#  fi
+#fi
+#EOF
+#   ;;
    bzip2) # need the patch
      echo "bzip2Patch=\"$bzip2Patch\"" >> $Output
      cat >> $Output << "EOF"
@@ -3904,10 +3931,10 @@ else # download it
 fi
 EOF
    ;;
-   coreutils) # need the patches
+   coreutils) # need the patch
      echo "coreutilsPatch1=\"$coreutilsPatch1\"" >> $Output
-     echo "coreutilsPatch2=\"$coreutilsPatch2\"" >> $Output
-     for ((ij=1; ij<3; ij++)); do
+#     echo "coreutilsPatch2=\"$coreutilsPatch2\"" >> $Output
+     for ((ij=1; ij<2; ij++)); do # change 2 to 3 if have 2 patches
        cat >> $Output << EOF
 if [ -e \${CUR_DIR}/\${coreutilsPatch${ij}} ]; then
   echo "patch already in place - will use that"
@@ -4000,16 +4027,6 @@ else # download it
 fi
 EOF
    ;;
-   kernel) # if making the kernel, need to add mproper
-     if $make_kernel; then
-       cat >> $Output << "EOF"
-make mrproper
-cp ${sourcedir}/.config .
-# copy the firmware to /usr/lib/firmware
-cp -r /tools/pkguser/firmware/* /usr/lib/firmware/
-EOF
-     fi
-   ;;
 #   meson) # need the patch
 #     cat >> $Output << "EOF"
 #if [ -e ${CUR_DIR}/meson-0.56.0-upstream_fix-1.patch ]; then
@@ -4066,7 +4083,6 @@ else # download it
 fi
 EOF
    ;;
-# no shadow patch currently
 #   shadow)
 #     echo "shadowPatch=\"${shadowPatch}\"" >> $Output
 #     cat >> $Output << "EOF"
@@ -4104,24 +4120,24 @@ else # download it
   fi
 fi
 EOF
-# currently (04/11/22) no patch required
-#     echo "systemdPatch=\"$systemdPatch\"" >> $Output
-#     cat >> $Output << "EOF"
-#if [ -e ${CUR_DIR}/${systemdPatch} ]; then
-#  echo "systemd patch already downloaded - will use that one"
-#elif [ -e ${sourceloc}/${systemdPatch} ]; then
-#  cp -v ${sourceloc}/${systemdPatch} ../
-#else # download it
-#  if [ -e /usr/bin/wget ]; then # wget exists on target machine
-#    wget $wgetopts $ncc -O ../${systemdPatch} "https://www.linuxfromscratch.org/patches/lfs/development/${systemdPatch}"
-#  else
-#    echo "/usr/bin/wget not found on the target machine"
-#    echo "Install it to continue"
-#    echo "Aborting"
-#    exit 1
-#  fi
-#fi
-#EOF
+# currently (29/12/22) a patch required
+     echo "systemdPatch=\"$systemdPatch\"" >> $Output
+     cat >> $Output << "EOF"
+if [ -e ${CUR_DIR}/${systemdPatch} ]; then
+  echo "systemd patch already downloaded - will use that one"
+elif [ -e ${sourceloc}/${systemdPatch} ]; then
+  cp -v ${sourceloc}/${systemdPatch} ../
+else # download it
+  if [ -e /usr/bin/wget ]; then # wget exists on target machine
+    wget $wgetopts $ncc -O ../${systemdPatch} "https://www.linuxfromscratch.org/patches/lfs/development/${systemdPatch}"
+  else
+    echo "/usr/bin/wget not found on the target machine"
+    echo "Install it to continue"
+    echo "Aborting"
+    exit 1
+  fi
+fi
+EOF
   ;;
    tcl) # need the html file
      cat >> $Output << "EOF"
@@ -4746,6 +4762,19 @@ chgrp install \${PkgUserDir}/\${PkgName}/usr/lib/perl5/${perlseries}/core_perl/p
 chmod 664 \${PkgUserDir}/\${PkgName}/usr/lib/perl5/${perlseries}/core_perl/perllocal.pod" >> $Output
      fi
    ;;
+   xz)
+     if ! $useDESTDIR; then
+       cat >> $Output << "EOF"
+chgrp install /usr/share/man/uk/man1
+chmod g+w,o+t /usr/share/man/uk/man1
+EOF
+     else
+       cat >> $Output << "EOF"
+chgrp install ${PkgUserDir}/${PkgName}/usr/share/man/uk/man1
+chmod g+w,o+t ${PkgUserDir}/${PkgName}/usr/share/man/uk/man1
+EOF
+     fi
+   ;;
 esac
 } # end setInstallDirs
 #
@@ -4768,15 +4797,69 @@ EOF
 esac
 } # end postProcessing
 #
+getSrcfileURL () {
+# returns two parameters:
+# the src URL as srcURL 
+# and useThisSrcLoc which is the location of the srcfile if it's already been downloaded
+# These are returned in a global array RtrnVars
+#
+# $1 is the array of srcfile URLs
+# $2 is the function name
+# $3 is the srcname to search for
+#
+declare -a sourceURL=("${!1}")
+local funcName=$2
+local srcname=$3
+local serchstr
+for srcURL in ${sourceURL[@]}; do # find the url for this src file
+  serchstr="*$srcname[0-9]*.tar.?z*"
+  case $funcName in # modify some of the src file names to search for
+     binutilspass2)
+       useThisSrcLoc="/build/binutilspass1"
+     ;;
+     gccpass2|gcclibstdc++|libstdc++)
+       useThisSrcLoc="/build/gccpass1"
+     ;;
+     linuxheaders) # need to check for the correct kernel series in the URL
+       useThisSrcLoc=""
+       filenameOnly=${srcURL##*/}
+       case $srcURL in
+          *$serchstr)
+            if $useKernelLatest; then
+              srcURL=${srcURL/$linuxvers/$kernLatestVers}
+            fi
+# check the srcURL, may need to change the series element /v6.x/
+            kernelSeries=${kernLatestVers%%.*}
+            newSeries="v${kernelSeries}.x"
+            srcURL=$(changeURL $srcURL 7 $newSeries)
+            srcURL=${srcURL/$curLinux}
+          ;;
+       esac
+     ;;
+     make) # make not automake
+       serchstr="*/make-[0-9]*"
+       useThisSrcLoc=""
+     ;;
+     *)
+       useThisSrcLoc=""
+     ;;
+  esac
+  case $srcURL in
+     $serchstr)
+#       if $printit; then msg "found the search string $serchstr"; fi
+#       if $printit; then msg "srcURL is $srcURL"; fi
+       RtrnVars[0]=$srcURL
+       RtrnVars[1]=$useThisSrcLoc
+       return 0
+     ;;
+  esac
+done
+return $RETURN_PARAM # serchstr not found so error
+} # end getSrcfileURL
+#
 Function () {
 case $PkgName in
-    changingowner)
-        if [[ $as_root && "$Chapter" != update ]]; then
-          WriteScript
-          return
-        fi
-    ;;
-    kernfs|chroot)
+    changingowner|kernfs|chroot)
         if [ "$Chapter" != update ]; then
           WriteScript
           return
@@ -4843,9 +4926,17 @@ else
   wget $wgetopts http://www.mpfr.org/mpfr-${mpfrvers}/${mpfrFile}
 fi
 EOF
-                     else
+                       RtrnVars=""
+                       getSrcfileURL sourceURL[@] $FuncName $SrcName
+                       srcURL=${RtrnVars[0]}
+                       useThisSrcLoc=${RtrnVars[1]}
+                       echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
+                     else # sources have been downloaded
+                       getSrcfileURL sourceURL[@] $FuncName $SrcName
+                       srcURL=${RtrnVars[0]}
+                       useThisSrcLoc=${RtrnVars[1]}
+                       echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
                        cat >> $Output << "EOF"
-unpack05 $SrcName
 # in chapter5 and chapter6 gcc require unpacking mpfr, mpc and gmp
 for i in mpfr gmp mpc
 do
@@ -4874,9 +4965,16 @@ else
   cp -v ${LFS}/build/gccpass1/mpfr*.tar.?z* .
 fi
 EOF
-                     else
+                       getSrcfileURL sourceURL[@] $FuncName $SrcName
+                       srcURL=${RtrnVars[0]}
+                       useThisSrcLoc=${RtrnVars[1]}
+                       echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
+                     else # sources have been downloaded
+                       getSrcfileURL sourceURL[@] $FuncName $SrcName
+                       srcURL=${RtrnVars[0]}
+                       useThisSrcLoc=${RtrnVars[1]}
+                       echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
                        cat >> $Output << "EOF"
-unpack05 $SrcName
 # in chapter5 and chapter6 gcc require unpacking mpfr, mpc and gmp
 for i in mpfr gmp mpc
 do
@@ -4896,14 +4994,28 @@ else
   wget $wgetopts http://www.linuxfromscratch.org/patches/lfs/development/${glibcPatch}
 fi
 EOF
-                     else
-                       cat >> $Output << "EOF"
-unpack05 $SrcName
-EOF
+                       getSrcfileURL sourceURL[@] $FuncName $SrcName
+                       srcURL=${RtrnVars[0]}
+                       useThisSrcLoc=${RtrnVars[1]}
+                       echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
+                     else # sources downloaded
+                       getSrcfileURL sourceURL[@] $FuncName $SrcName
+                       echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
                      fi
 		   ;;
+                   wget) # special case for wget because it's not in LFS
+# get the latest version of wget from blfs
+                     local URLtoUse="https://linuxfromscratch.org/blfs/view/systemd/basicnet/wget.html"
+                     local -a wgetLines=($(python3 BShref.py $URLtoUse))
+                     srcURL=${wgetLines[0]} # the https url
+                     useThisSrcLoc=""
+                     echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
+                   ;;
                    *)
-                     echo "unpack05 \$SrcName" >> $Output
+                     getSrcfileURL sourceURL[@] $FuncName $SrcName
+                     srcURL=${RtrnVars[0]}
+                     useThisSrcLoc=${RtrnVars[1]}
+                     echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
                    ;;
                 esac
               else # as pkguser
@@ -4917,10 +5029,10 @@ EOF
 		elif [ "$FuncName" = openssl ]; then # set the GID to 10055, the value in Ch8
                   uidVal=10055
                   gidVal=10055
-                elif [ "$FuncName" = wget ]; then # set the GID to 10172, it is deleted at end of LFS
+                elif [ "$FuncName" = wget ]; then # set the GID to 10171, it is deleted at end of LFS
 # because it is reinstalled in BLFS
-                  uidVal=10172
-                  gidVal=10172
+                  uidVal=10171
+                  gidVal=10171
 	        fi
                 echo "uidVal=$uidVal
 gidVal=$gidVal" >> $Output
@@ -5142,8 +5254,8 @@ EOF
                        esac
                        case $srcURL in
                           $serchstr)
-                            if $printit; then msg "found the search string $serchstr"; fi
-                            if $printit; then msg "srcURL is $srcURL"; fi
+#                            if $printit; then msg "found the search string $serchstr"; fi
+#                            if $printit; then msg "srcURL is $srcURL"; fi
                             echo "unpack05 \$SrcName \"$srcURL\" \"$useThisSrcLoc\"" >> $Output
                             break
                           ;;
@@ -5348,41 +5460,41 @@ starttime=\$( date +%s )
                             getUrlSrcDnld $useUnpack "$PkgName" "" "$PkgUserDir"
                           ;;
                           kernel|linux-headers) # check if a chapter10 install or an update
+                            useThisSrcLoc=$PkgUserDir # default is kernel installed 
                             if [[ "$Chapter" = chapter10 || "$Chapter" = update ]]; then
                               useThisKernelVers=$kernLatestVers
                               if [ ! -z "$linuxInstallVers" ]; then
                                 if [ "$linuxInstallVers" != "$kernLatestVers" ]; then
-                                  msg "The installed kernel $linuxInstallVers is different from the latest available kernel"
-                                  msg "Do you want to use the latest $kernLatestVers kernel? [Y/n]"
+                                  echo "The installed kernel $linuxInstallVers is different from the latest available kernel"
+                                  echo "Do you want to use the latest $kernLatestVers kernel? [Y/n]"
                                   read REPLY
                                     case $REPLY in
                                        [nN]|[nN][Oo])
-                                         msg "Will use the installed linux version $linuxInstallVers"
+                                         echo "Will use the installed linux version $linuxInstallVers"
                                          useThisKernelVers=$linuxInstallVers
                                        ;;
                                        *)
-                                         msg "Will use the latest linux version $useThisKernelVers"
+                                         echo "Will use the latest linux version $useThisKernelVers"
                                          rm -rf "${LFS}${PkgUserDir}/linux-headers/linux-${linuxInstallVers}.tar.xz"
                                          rm -rf "${LFS}${PkgUserDir}/linux-headers/linux-${linuxInstallVers}"
                                        ;;
                                     esac
                                 else # the same version
-                                  msg "The installed kernel $useThisKernelVers is the latest version"
+                                  echo "The installed kernel $useThisKernelVers is the latest version"
                                 fi
+                              else # linuxInstallVers is null, no kernel installed
+                                if [ "$Chapter" = chapter10 ]; then useThisSrcLoc=$preChrootBuild; fi
                               fi
                               echo "pkgVers=$useThisKernelVers" >> $Output
-# set the correct useThisSrcLoc. If Chapter is update set useThisSrcLoc to null
-                              useThisSrcLoc=$PkgUserDir
-                              if [ "$Chapter" = chapter10 ]; then
-                                if ! $linuxInstalled; then useThisSrcLoc=$preChrootBuild; fi
-                              elif [ "$Chapter" = update ]; then # not needed because install dir is cleaned
+                              if [ "$Chapter" = update ]; then # useThisSrcLoc not needed because install dir is cleaned
                                 useThisSrcLoc=""
                               fi
+msg "calling getUrlSrcDnld, useUnpack is $useUnpack"
                               getUrlSrcDnld $useUnpack "$PkgName" '${SrcName}${pkgVers}.tar.xz' "$useThisSrcLoc"
                             else # a problem
-                              msg "calling getUrlSrcDnld but Chapter is $Chapter"
-                              msg "It should be chapter10 or update"
-                              msg "INVESTIGATE"
+                              echo "calling getUrlSrcDnld but Chapter is $Chapter"
+                              echo "It should be chapter10 or update"
+                              echo "INVESTIGATE"
                               exit 1
                             fi
                           ;;
@@ -5399,7 +5511,7 @@ SrcName=$SrcName" >> $Output
                      if [[ "$SOURCES" = download || "$SOURCES" = local ]]; then
                        case $PkgName in
                           glibc)
-                            echo "unpack07 \$SrcName \"\" \"\" \"$addPattern\"" >> $Output
+                            echo "unpack \$SrcName \"\" \"\" \"$addPattern\"" >> $Output
 # get the tzdata file
                             cat >> $Output << "EOF"
 if [ -e ${sourceloc}/tzdata*.tar.?z* ]; then
@@ -5412,15 +5524,64 @@ fi
 EOF
                           ;;
                           systemd) # distinguish the srcfile from the manpage file
-                            echo "unpack07 \$SrcName \"\" \"\" \"$addPattern\" true" >> $Output
+                            echo "unpack \$SrcName \"\" \"\" \"$addPattern\" true" >> $Output
                           ;;
                           *)
-                            echo "unpack07 \$SrcName \"\" \"\" \"$addPattern\"" >> $Output
+                            echo "unpack \$SrcName \"\" \"\" \"$addPattern\"" >> $Output
                           ;;
                        esac
                      elif [[ "$SOURCES" = atinstall ]]; then # get the srcURL and download any extra files
-                       getUrlSrcDnld "unpack07" "$PkgName" "" "$preChrootBuild"
-                       dnldAddFiles
+# py3-flit-core and py3-installer are installed using pip, not from the source tarfile
+                       if [[ "$PkgName" != "py3-flit-core" && "$PkgName" != "py3-installer" ]]; then
+                         useUnpack="unpack"
+                         case $PkgName in
+                            kernel|linux-headers) # check if a chapter10 install or an update
+                              if [[ "$Chapter" = chapter10 || "$Chapter" = update ]]; then
+                                useThisSrcLoc=$PkgUserDir # default is kernel installed 
+                                useThisKernelVers=$kernLatestVers
+                                if [ ! -z "$linuxInstallVers" ]; then
+                                  if [ "$linuxInstallVers" != "$kernLatestVers" ]; then
+                                    echo "The installed kernel $linuxInstallVers is different from the latest available kernel"
+                                    echo "Do you want to use the latest $kernLatestVers kernel? [Y/n]"
+                                    read REPLY
+                                      case $REPLY in
+                                         [nN]|[nN][Oo])
+                                           echo "Will use the installed linux version $linuxInstallVers"
+                                           useThisKernelVers=$linuxInstallVers
+                                         ;;
+                                         *)
+                                           echo "Will use the latest linux version $useThisKernelVers"
+                                           rm -rf "${LFS}${PkgUserDir}/linux-headers/linux-${linuxInstallVers}.tar.xz"
+                                           rm -rf "${LFS}${PkgUserDir}/linux-headers/linux-${linuxInstallVers}"
+                                         ;;
+                                      esac
+                                  else # the same version
+                                    echo "The installed kernel $useThisKernelVers is the latest version"
+                                  fi
+                                else # linuxInstallVers is null, no kernel installed
+                                  if [ "$Chapter" = chapter10 ]; then useThisSrcLoc=$preChrootBuild; fi
+                                fi
+                                echo "pkgVers=$useThisKernelVers" >> $Output
+                                if [ "$Chapter" = update ]; then # useThisSrcLoc not needed because install dir is cleaned
+                                  useThisSrcLoc=""
+                                fi
+msg "calling getUrlSrcDnld, useUnpack is $useUnpack"
+msg "PkgName is $PkgName"
+                                getUrlSrcDnld $useUnpack "$PkgName" '${SrcName}${pkgVers}.tar.xz' "$useThisSrcLoc"
+                              else # a problem
+                                echo "calling getUrlSrcDnld but Chapter is $Chapter"
+                                echo "It should be chapter10 or update"
+                                echo "INVESTIGATE"
+                                exit 1
+                              fi
+                            ;;
+                            *)
+msg "PkgName is $PkgName"
+                              getUrlSrcDnld $useUnpack "$PkgName" "" "$preChrootBuild"
+                              dnldAddFiles
+                            ;;
+                         esac
+                       fi
                      fi
                    fi # end test building as root
                  ;;
@@ -5440,6 +5601,16 @@ destdirInstall "$CUR_DIR"
 EOF
 else
   case $PkgName in
+     kernel) # if making the kernel, need to add mproper and any firmware
+       if $make_kernel; then
+         cat >> $Output << "EOF"
+make mrproper
+cp ${sourcedir}/.config .
+# copy the firmware to /usr/lib/firmware
+cp -r /tools/pkguser/firmware/* /usr/lib/firmware/
+EOF
+       fi
+     ;;
      man-pages)
        echo "sed -i '/install -d -m 755 \\\\\$(DESTDIR)\\\\\$(MANDIR)/d ' Makefile" >> $Output
      ;;
@@ -5447,10 +5618,15 @@ else
        if [[ ("$Chapter" = chapter08 || "$Chapter" = update) && "$useDESTDIR" = false ]]; then
          cat >> $Output << "EOF"
 # using binaries from Pypi so don't call unpack
+curdir=$( echo $PWD )
 # have to set the following timings
 starttime=$( date +%s )
 endtime=$( date +%s )
-unpacktime=$( expr $endtime - $starttime )
+if [ $endtime -eq $starttime ]; then
+  unpacktime=0
+else
+  unpacktime=$( expr $endtime - $starttime )
+fi
 starttime=$( date +%s )
 usePip=true
 EOF
@@ -5474,6 +5650,15 @@ rm -rf $curdir
 elapsedtime=$( expr $endtime - $starttime )
 set -e
 EOF
+# if wget, add resolv.conf
+       if [[ "$as_root" = true && "$FuncName" = wget ]]; then
+         cat >> $Output << "EOF"
+cat > ${LFS}/etc/resolv.conf << "RESOLVEOF"
+nameserver 192.168.1.1
+search mynet 
+RESOLVEOF
+EOF
+       fi
        if $as_root; then
          cat >> $Output << "EOF"
 echo "$FuncName $unpacktime $elapsedtime" >> ${LFS}${BuildLog}
@@ -5714,7 +5899,11 @@ EOF
              if $installBinTarfile; then # delete the binary dirs
                echo "rm -rf etc opt run usr var" >> $Output
              else
-               delSrcFile >> $Output
+               if [[ "$PkgName" = "py3-flit-core" || "$PkgName" = "py3-installer" ]]; then
+                 delPy3File >> $Output
+             else
+                 delSrcFile >> $Output
+             fi
              fi
              if [ "$PkgName" = glibc ]; then #also delete glibc-build
                echo "rm -rf glibc-build" >> $Output
@@ -5731,7 +5920,7 @@ EOF
              if ! $as_root; then
                echo "IPS" >> $Output
                if [[ "$Chapter" = chapter07 && "$PkgName" = util-linux && "$createBinFile" = true ]]; then # don't want resolvelinks
-                 msg "Don't need resolvelinks for util-linux in chapter07"
+                 echo "Don't need resolvelinks for util-linux in chapter07"
                else
                  setuplinks # setup any preprocessing commands
                  if [[ ! -z "$otherPrePro" || ! -z "$doFirst" || ! -z "$links" ]]; then resolvelinks; fi # not null
@@ -5846,8 +6035,8 @@ EOF
                             if [ ! -z "$linuxInstallVers" ]; then
                               echo "createPkgfile \$PkgUserDir \$PkgName \"$linuxInstallVers\"" >> $Output
                             else
-                              msg "didn't use linuxvers which is $linuxvers"
-                              msg "Investigate"
+                              echo "didn't use linuxvers which is $linuxvers"
+                              echo "Investigate"
                               exit 1
                             fi
                           fi
@@ -5946,7 +6135,7 @@ echo "$PkgName $unpacktime $elapsedtime" >> $BuildLog
 EOF
         echo "IPS" >> $Output
         if $installBinTarfile; then # don't need resolvelinks 
-          msg "don't need resolvelinks when installing a kernel binary tarfile"
+          echo "don't need resolvelinks when installing a kernel binary tarfile"
         else
           setuplinks # setup any preprocessing commands
           if [[ ! -z "$otherPrePro" || ! -z "$doFirst" || ! -z "$links" ]]; then resolvelinks; fi # not null
@@ -6122,18 +6311,27 @@ EOF
           else
             cat >> $Output << "EOF"
 if ! $AS_ROOT; then chown $PkgName:$PkgName /etc/{lfs-release,lsb-release,os-release}; fi
+EOF
+            if ! $as_root; then
+               cat >> $Output << "EOF"
 # ask to delete files owned by wget in Chapter06
 echo "Do you want to delete the wget files? [y/N]"
 read Reply
 case $Reply in
    [yY]|[yY][Ee][Ss])
      echo "okay, the wget files will be deleted"
-     /usr/bin/listdelpkg.sh 10172 10172 delete
+     /usr/bin/listdelpkg.sh 10171 10171 delete
    ;;
    *)
      echo "The wget list files will be left in place"
    ;;
 esac
+# change owner of /usr/share/locale/en_GB and rw installed by wget
+chown bash:bash /usr/share/locale/{en_GB,rw}
+chown bash:install /usr/share/locale/{rw/LC_MESSAGES,en_GB/LC_MESSAGES}
+EOF
+            fi
+            cat >> $Output << "EOF"
 # ask to delete the build dir from Ch. 5 and 6
 echo "Do you want to delete the /build dir from Ch. 5 and 6? [Y/n]"
 read Reply
@@ -6146,9 +6344,6 @@ case $Reply in
      rm -rf /build
    ;;
 esac
-# change owner of /usr/share/locale/en_GB and rw installed by wget
-chown bash:bash /usr/share/locale/{en_GB,rw}
-chown bash:install /usr/share/locale/{rw/LC_MESSAGES,en_GB/LC_MESSAGES}
 EOF
           fi
           IFS=$IFSOLD
@@ -6184,6 +6379,11 @@ case $PkgName in
     bash)
         if ! $useDESTDIR; then
           links="/bin/bash /bin/sh"
+        fi
+    ;;
+    bison) # needed in chapter07
+        if ! $useDESTDIR; then
+          doFirst="/usr/share/{doc,info}"
         fi
     ;;
     coreutils)
@@ -6231,7 +6431,7 @@ case $PkgName in
           fi
         else
           if ! $useDESTDIR; then
-            doFirst="/usr/share/man/{man2,man6}"
+            doFirst="/usr/share/man/{,man2,man6}"
           fi
         fi
     ;;
@@ -6249,6 +6449,9 @@ case $PkgName in
         if ! $useDESTDIR; then
           links="/usr/bin/perl"
         fi
+    ;;
+    python3)
+          doFirst="/usr/lib/pkgconfig"
     ;;
     shadow)
         if ! $useDESTDIR; then
@@ -6414,45 +6617,78 @@ unpack07 () {
 cat >> $Output << "EOF"
 unpack07 () {
 # $1 is the source name
-# $2, if present, is the url to download the source file
-# $3, if present, is the sourceloc of the file already downloaded
-# $4, if present, is the pattern to add to the cd line to untar the correct file
-# $5, if true, add this pattern to the tests
+# $2 is the url to download the source file
+# $3, if present, is the source filename
+# note -  generally the input and output source filenames are the same but
+# if using a source file from github then they are often different
+# $4, if present, is the sourceloc of the file already downloaded
 sourcelocOld=$sourceloc # sourceloc is global - store it to reset it at the end
 local srcname=$1
-local srcURL=${2:-""}
-local altSourceloc=${3:-""}
-local pattern=${4:-""}
-local tstPat="${5:-false}"
+local srcURL=$2
+local srcFile=${3:-""}
+local altSourceloc=${4:-""}
 if [ ! -z "$altSourceloc" ]; then # set sourceloc to this location
   sourceloc=$altSourceloc
 fi
 echo "sourceloc is $sourceloc"
-addPat=""
-if $tstPat; then addPat=$pattern; fi
+if [ -z "$srcFile" ]; then srcFile=${srcURL##*/}; fi
+echo "srcFile to install is $srcFile" # is this file already in $CUR_DIR
 starttime=$( date +%s )
-if [ -e ${CUR_DIR}/${srcname}${addPat}*.tar.?z* ]; then # src exists in current dir - use that
+EOF
+case $SrcName in
+   systemd-) # distinguish from the man-pages file
+     cat >> $Output << "EOF"
+if [ -e ${CUR_DIR}/${srcname}[0-9]*.tar.?z* ]; then # a srcfile exists in current dir - use that
   echo "$srcname already in current dir - will use that one"
-elif [ -e ${sourceloc}/${srcname}${addPat}*.tar.?z* ]; then # src exists so copy it to current dir
+elif [ -e ${sourceloc}/${srcname}[0-9]*.tar.?z* ]; then # src exists so copy it to current dir
+EOF
+   ;;
+   tcl8.) # need to specify -src to distinguish from the html file
+     cat >> $Output << "EOF"
+if [ -e ${CUR_DIR}/${srcname}*-src.tar.?z* ]; then # a srcfile exists in current dir - use that
+  echo "$srcname already in current dir - will use that one"
+elif [ -e ${sourceloc}/${srcname}*-src.tar.?z* ]; then # src exists so copy it to current dir
+EOF
+   ;;
+   *)
+     cat >> $Output << "EOF"
+if [ -e ${CUR_DIR}/${srcname}*.tar.?z* ]; then # a srcfile exists in current dir - use that
+  echo "$srcname already in current dir - will use that one"
+elif [ -e ${sourceloc}/${srcname}*.tar.?z* ]; then # src exists so copy it to current dir
+EOF
+   ;;
+esac
+cat >> $Output << "EOF"
   cp -v ${sourceloc}/${srcname}*.* . # copy any patches as well
 else # download it
   if [ -e /usr/bin/wget ]; then # wget exists on the target machine
-    if [ ! -z "$srcURL" ]; then
-      wget $wgetopts $ncc $srcURL
-    else
-      echo "No srcURL given. You need to download the source file"
-      echo "Aborting"
-      exit 1
-    fi
+    wget $wgetopts $ncc -O $srcFile $srcURL
   else
-    echo "/usr/bin/wget not present on the target machine"
-    echo "Install it in order to continue"
+    echo "Install wget on the target machine in order to continue"
     echo "Aborting"
     exit 1
   fi
 fi
-cd $(tar vxf ${srcname}${pattern}*.tar.?z* | awk -F\/ 'END{print $1}')
-curdir=$(echo $PWD)
+EOF
+case $SrcName in
+   systemd-) # distinguish from the man-pages file
+     cat >> $Output << "EOF"
+cd $(tar vxf ${srcname}[0-9]*.tar.?z* | awk -F\/ 'END{print $1}')
+EOF
+   ;;
+   tcl8.) # need to specify -src to distinguish from the html file
+     cat >> $Output << "EOF"
+cd $(tar vxf ${srcname}*-src.tar.?z* | awk -F\/ 'END{print $1}')
+EOF
+   ;;
+   *)
+     cat >> $Output << "EOF"
+cd $(tar vxf ${srcname}*.tar.?z* | awk -F\/ 'END{print $1}')
+EOF
+   ;;
+esac
+cat >> $Output << "EOF"
+curdir=$( echo $PWD ) #store the source dir for later deletion
 endtime=$( date +%s )
 set +e
 unpacktime=$( expr $endtime - $starttime )
@@ -6462,7 +6698,7 @@ sourceloc=$sourcelocOld
 } # end unpack07
 #
 EOF
-} # end uppack07
+} # end unpack07
 #
 unpack10 () {
 # used when installing the kernel
@@ -6485,28 +6721,7 @@ if [ -z "$srcFile" ]; then srcFile=${srcURL##*/}; fi
 echo "srcFile to install is $srcFile"
 starttime=$( date +%s )
 EOF
-#useThisKernelVers=$kernLatestVers
-#if [ ! -z "$linuxInstallVers" ]; then
-#  if [ "$linuxInstallVers" != "$kernLatestVers" ]; then
-#    msg "The installed kernel $linuxInstallVers is different from the latest available kernel"
-#    msg "Do you want to use the latest $kernLatestVers kernel? [Y/n]"
-#    read REPLY
-#    case $REPLY in
-#       [nN]|[nN][Oo])
-#          msg "Will use the installed linux version $linuxInstallVers"
-#          useThisKernelVers=$linuxInstallVers
-#       ;;
-#       *)
-#          msg "Will use the latest linux version $useThisKernelVers"
-#          rm -rf "${LFS}${PkgUserDir}/kernel/linux-${linuxInstallVers}.tar.xz"
-#          rm -rf "${LFS}${PkgUserDir}/kernel/linux-${linuxInstallVers}"
-#       ;;
-#    esac
-#  else # the same version
-#    msg "The installed kernel $useThisKernelVers is the latest version"
-#  fi
-#fi
-#echo "pkgVers=$useThisKernelVers" >> $Output
+#
 cat >> $Output << "EOF"
 if [ -e ${CUR_DIR}/${srcname}${pkgVers}.tar.?z* ]; then # the srcfile exists in current dir - use that
   echo "${srcname}${pkgVers} already in current dir - will use that one"
@@ -6534,7 +6749,7 @@ EOF
 } # end uppack10
 # the unpack used in chapter08 and update
 unpack () {
-     cat << "EOF"
+cat >> $Output << "EOF"
 unpack () {
 # $1 is the source name
 # $2 is the url to download the source file
@@ -6555,35 +6770,35 @@ if [ -z "$srcFile" ]; then srcFile=${srcURL##*/}; fi
 echo "srcFile to install is $srcFile" # is this file already in $CUR_DIR
 starttime=$( date +%s )
 EOF
-   case $SrcName in
-      systemd-) # distinguish from the man-pages file
-        cat << "EOF"
+case $SrcName in
+   systemd-) # distinguish from the man-pages file
+     cat >> $Output << "EOF"
 if [ -e ${CUR_DIR}/${srcname}[0-9]*.tar.?z* ]; then # a srcfile exists in current dir - use that
   echo "$srcname already in current dir - will use that one"
 elif [ -e ${sourceloc}/${srcname}[0-9]*.tar.?z* ]; then # src exists so copy it to current dir
 EOF
-      ;;
-      tcl8.) # need to specify -src to distinguish from the html file
-        cat << "EOF"
+   ;;
+   tcl8.) # need to specify -src to distinguish from the html file
+     cat >> $Output << "EOF"
 if [ -e ${CUR_DIR}/${srcname}*-src.tar.?z* ]; then # a srcfile exists in current dir - use that
   echo "$srcname already in current dir - will use that one"
 elif [ -e ${sourceloc}/${srcname}*-src.tar.?z* ]; then # src exists so copy it to current dir
 EOF
-      ;;
-      *)
-        cat << "EOF"
+   ;;
+   *)
+     cat >> $Output << "EOF"
 if [ -e ${CUR_DIR}/${srcname}*.tar.?z* ]; then # a srcfile exists in current dir - use that
   echo "$srcname already in current dir - will use that one"
 elif [ -e ${sourceloc}/${srcname}*.tar.?z* ]; then # src exists so copy it to current dir
 EOF
-      ;;
-   esac
-   if [[ "$Chapter" = update && "$PkgName" = "linux-headers" ]]; then # the linux src dir is open
-     echo "    cp -v \${sourceloc}/\${srcname}*.tar.?z* ." >> $Output
-   else
-     echo "    cp -v \${sourceloc}/\${srcname}*.* . # copy any patches as well" >> $Output
-   fi
-   cat << "EOF"
+   ;;
+esac
+if [[ "$Chapter" = update && "$PkgName" = "linux-headers" ]]; then # the linux src dir is open
+  echo "    cp -v \${sourceloc}/\${srcname}*.tar.?z* ." >> $Output
+else
+  echo "    cp -v \${sourceloc}/\${srcname}*.* . # copy any patches as well" >> $Output
+fi
+cat >> $Output << "EOF"
 else # download it
   if [ -e /usr/bin/wget ]; then # wget exists on the target machine
     wget $wgetopts $ncc -O $srcFile $srcURL
@@ -6594,24 +6809,24 @@ else # download it
   fi
 fi
 EOF
-     case $SrcName in
-        systemd-) # distinguish from the man-pages file
-          cat << "EOF"
+case $SrcName in
+   systemd-) # distinguish from the man-pages file
+     cat >> $Output << "EOF"
 cd $(tar vxf ${srcname}[0-9]*.tar.?z* | awk -F\/ 'END{print $1}')
 EOF
-        ;;
-        tcl8.) # need to specify -src to distinguish from the html file
-          cat << "EOF"
+   ;;
+   tcl8.) # need to specify -src to distinguish from the html file
+     cat >> $Output << "EOF"
 cd $(tar vxf ${srcname}*-src.tar.?z* | awk -F\/ 'END{print $1}')
 EOF
-        ;;
-        *)
-          cat << "EOF"
+   ;;
+   *)
+     cat >> $Output << "EOF"
 cd $(tar vxf ${srcname}*.tar.?z* | awk -F\/ 'END{print $1}')
 EOF
-        ;;
-     esac
-     cat << "EOF"
+   ;;
+esac
+cat >> $Output << "EOF"
 curdir=$( echo $PWD ) #store the source dir for later deletion
 endtime=$( date +%s )
 set +e
@@ -6893,11 +7108,17 @@ else
           fi
         fi
     ;;
-    changingowner) # add this if running as root
-	if $as_root; then
+    changingowner)
+        if $as_root; then # use the -R recursive for all dirs
           GetCommands \
-           | sed -e 's/usr,lib,var,etc,bin,sbin,tools/build,"LFS-build.log",etc,var,tools,usr/' \
-            >> $Output; fi
+           | sed -e 's/sbin,tools/sbin,sources,tools/' \
+           >> $Output
+        else # pkguser so leave the dirs as they are
+          GetCommands \
+           | sed -e '/^chown -R root:root/i# installing as a pkguser\n# top level directories left alone' \
+                 -e '/chown -R root:root/,/esac/d' \
+           >> $Output
+        fi
     ;;
     check)
         if $useDESTDIR; then
@@ -7825,6 +8046,8 @@ print $0
                  -e 's/install -vm755 \/tmp\/$LIB \/usr\/lib/install -vm755 -o $USER -g $GROUP \/tmp\/$LIB \/usr\/lib\n\    if [ -e "$LIB.dbg" ]; then chown -v $USER:$GROUP $LIB.dbg; fi/' \
                  -e 's/install -vm755 \/tmp\/$BIN \/usr\/bin/install -vm755 -o $USER -g $GROUP \/tmp\/$BIN \/usr\/bin/' \
            >> $Output
+        else # as root so don't need to specify the USER and GROUP ids
+          GetCommands >> $Output
         fi
     ;;
     sysklogd)
@@ -7843,12 +8066,14 @@ print $0
             GetCommands \
              | sed -e 's/ninja install/DESTDIR="$CUR_DIR" ninja install/' \
                    -e '/tar -xf /i install -dm0755 "${CUR_DIR}"\/usr\/share\/man' \
-                   -e 's/-C \/usr\/share\/man/-C "${CUR_DIR}"\/usr\/share\/man/' \
+                   -e 's/--strip-components=1 //' \
+		   -e 's/-C \/usr\/share\/man/-C "${CUR_DIR}"\/usr\/share\/man/' \
                    -e '/systemd-machine-id-setup/,/systemctl disable systemd-sysupdate/d' \
              >> $Output
           else
             GetCommands \
-             | sed -e '/tar -xf/a # mv the man pages to the correct dir\npushd /usr/share/man > /dev/null\nfor manPage in 1 3 5 7 8;do\n  mv -v *.${manPage} man${manPage}/\ndone\npopd > /dev/null' \
+             | sed -e 's/--strip-components=1 //' \
+                   -e '/tar -xf/a # mv the man pages to the correct dir\npushd /usr/share/man/systemd-man-pages-* > /dev/null\nfor page in 1 3 5 7 8; do\n  cd man${page}\n  mv -v *.* /usr/share/man/man${page}\n  cd ..\ndone\ncd ..\nrm -rf -v systemd-man-pages-*\npopd > /dev/null' \
                    -e '/systemd-machine-id-setup/,/systemctl disable systemd-sysupdate/d' \
              >> $Output
           fi
@@ -8113,10 +8338,12 @@ mandb_" >> $Output
           if [[ "$eachFunc" = sysklogd_ || "$eachFunc" = sysvinit_ ]]; then
             : # don't write it
           elif [[ "$eachFunc" = e2fsprogs_ ]]; then # add py3 modules
-            echo "$eachFunc
+            if ! $as_root; then
+              echo "$eachFunc
 updatePkgUser_
 py3flitcore_
 py3installer_" >> $Output
+            fi
           elif [[ "$eachFunc" = py3flitcore_ || "$eachFunc" = py3installer_ || "$eachFunc" = updatePkgUser_ ]]; then
             : # don't write them here
           else
@@ -8216,8 +8443,8 @@ if $single_package; then
   else
     reqChaps=chapter08
   fi
-  msg "reqChaps is $reqChaps"
-  msg "Chapter is $Chapter"
+  if $printit; then msg "reqChaps is $reqChaps"; fi
+  if $printit; then msg "Chapter is $Chapter"; fi
 else # not a single package
   reqChaps=$WHICH_CHAPTER
   if [ "$WHICH_CHAPTER" = update ]; then
@@ -8229,18 +8456,18 @@ else # not a single package
   fi
   if [ "$reqChaps" = all ]; then # *** this currently (05/2022) doesn't work ***
     reqChaps=$allChaps # doesn't include update
-    msg "*** WARNING *** all chapters does not work. It is not tested"
+    echo "*** WARNING *** all chapters does not work. It is not tested"
     exit 1
   fi
-  msg "reqChaps is $reqChaps"
-  msg "Chapter is $Chapter"
+  if $printit; then msg "reqChaps is $reqChaps"; fi
+  if $printit; then msg "Chapter is $Chapter"; fi
 fi
 # cycle through the requested chapters
 # TODO get this to work for multiple chapters
 for currentChapter in $reqChaps; do
   if ! $single_package; then
 # set the output script name
-    msg "currentChapter is $currentChapter"
+    if $printit; then msg "currentChapter is $currentChapter"; fi
     case $currentChapter in
        chapter05)
          scriptName=${LFS}/${ch5script}
@@ -8269,12 +8496,12 @@ for currentChapter in $reqChaps; do
        ;;
     esac
   fi
-  msg "scriptName is $scriptName"
+  if $printit; then msg "scriptName is $scriptName"; fi
   Output=$scriptName # global variable
   if [[ ("$Chapter" = chapter10 || "$Chapter" = update) && "$make_kernel" = true ]]; then
     if ! $single_package; then
       if $useDESTDIR; then
-        msg "A binary tarfile will be created for the kernel"
+        echo "A binary tarfile will be created for the kernel"
       fi
     fi
   fi
@@ -8287,7 +8514,7 @@ for currentChapter in $reqChaps; do
     if [ "$Chapter" != update ]; then
       if [ -e $testForLinuxHeaders ]; then rm -v $testForLinuxHeaders; fi
     fi
-msg "haveCommands is $haveCommands"
+#msg "haveCommands is $haveCommands"
     if $haveCommands; then # use the $lfscommands dir on the target machine
       listPackages=$( ls -l ${DumpedCommands}/${currentChapter} | tail -n+2 | awk '{print $NF}' | sed 's/^[^-]*-//g')
     elif [ -d "${REPODIR}/lfs/${currentChapter}" ]; then # use the book xml files to get pkgnames
@@ -8312,7 +8539,7 @@ msg "haveCommands is $haveCommands"
       fi
     fi
   fi
-msg "listPackages is ${listPackages[@]}"
+if $printit; then msg "listPackages is ${listPackages[@]}"; fi
   for Name in $listPackages; do
 # ignore systemd and dbus if using sysv
     if [[ "$isSystemdBook" = false && ("$Name" == systemd || "$Name" == dbus) ]]; then # not installed in this book version
@@ -8419,7 +8646,7 @@ msg "listPackages is ${listPackages[@]}"
             else
               echo "binary tarfile found for package $PkgName"
             fi
- msg "binTarfileVers is $binTarfileVers"
+            if $printit; then msg "binTarfileVers is $binTarfileVers"; fi
           fi
         fi
         case $PkgName in # call Function
@@ -8427,11 +8654,7 @@ msg "listPackages is ${listPackages[@]}"
               if [ "$Chapter" != update ]; then
                 Function
 # Now have a base file structure so add pkguser
-                if ! $as_root; then
-                  pkguser
-                else
-                  copypkguserbin # add listpkg and necessary files
-                fi
+                if ! $as_root; then pkguser; fi
               fi
            ;;
            creatingdirs)
@@ -8728,12 +8951,12 @@ if [ "$?" = 0 ]; then
     kernLatestVers=$rtrvers # global
     return 0
   else
-    msg "rtrvers is NULL. Can't get the kernel version"
-    msg "Investigate why this failed"
+    echo "rtrvers is NULL. Can't get the kernel version"
+    echo "Investigate why this failed"
   fi
 else
-   msg "return value for kernel vers from GetPkgVersion is $? It should be zero"
-   msg "Investigate why this didn't work"
+   echo "return value for kernel vers from GetPkgVersion is $? It should be zero"
+   echo "Investigate why this didn't work"
 fi
 return $RETURN_OTHER_ERR
 } # end getLatestKernel
@@ -9037,26 +9260,24 @@ ch8script="chapter08.sh"
 ch10script="chapter10.sh"
 updateScript="update.sh"
 #
-# check untested combinations
-if [[ "$AS_ROOT" = yes && "$SOURCES" = atinstall ]]; then
-  echo "*** WARNING ***"
-  echo "You've chosen to install as root and to download the sources at install time"
-  echo "This combination is untested and is likely not to work"
-  echo "Do you wish to continue [y/N]?"
+# check if installing as root
+if [ "$AS_ROOT" = yes ]; then # test which chapter
+  if [ "$WHICH_CHAPTER" = chapter05 -o "$WHICH_CHAPTER" = chapter06 ]; then # install as user lfs
+    echo "*** INFORMATION ***"
+    echo "You've chosen to install as root and WHICH_CHAPTER is $WHICH_CHAPTER"
+    echo "This chapter will be installed as user lfs"
+    echo "Do you wish to continue [Y/n]?"
     read REPLY
-    case $REPLY in
-       [yY]|[yY][Ee][Ss])
-          echo "Okay, continuing"
-       ;;
-       [nN]|[nN][Oo])
-          echo "Okay, aborting"
-          exit 1
-       ;;
-       *)
-          echo "Okay, aborting"
-          exit 1
-       ;;
-    esac
+      case $REPLY in
+         [nN]|[nN][Oo])
+            echo "Okay, aborting"
+            exit 1
+         ;;
+         *)
+            echo "Okay, continuing"
+         ;;
+      esac
+  fi
 fi
 #
 # get the requested book
@@ -9099,9 +9320,9 @@ elif [ "$BOOK_ORIGIN" = local ]; then # check if the commands are in place
     if [ "$(ls -A ${DumpedCommands}/${whichChapter})" ]; then
       haveCommands=true
     else
-      msg "The directory ${DumpedCommands}/${whichChapter} is empty"
-      msg "Did you download the book?"
-      msg "Aborting"
+      echo "The directory ${DumpedCommands}/${whichChapter} is empty"
+      echo "Did you download the book?"
+      echo "Aborting"
       exit 1
     fi
   elif [ -d "${bookDir}/${trunkDIR}/lfs" ]; then # book present
@@ -9226,9 +9447,9 @@ if ! $haveCommands; then # need to dump the commands from the book
   if [ "$(ls -A ${DumpedCommands}/${whichChapter})" ]; then
     haveCommands=true
   else
-    msg "Dir ${DumpedCommands}/${whichChapter} doesn't exist or is empty"
-    msg "INVESTIGATE why DumpCommands didn't work"
-    msg "Aborting"
+    echo "Dir ${DumpedCommands}/${whichChapter} doesn't exist or is empty"
+    echo "INVESTIGATE why DumpCommands didn't work"
+    echo "Aborting"
     exit 1
   fi
 #
@@ -9435,8 +9656,8 @@ WgetList=${SourceDir}/${wgetlist}
 # if it isn't, try and download it
 #
 if $single_package; then
-#  msg "single_package is $single_package"
-#  msg "SINGLE_PACKAGE is $SINGLE_PACKAGE"
+  if $printit; then msg "single_package is $single_package"; fi
+  if $printit; then msg "SINGLE_PACKAGE is $SINGLE_PACKAGE"; fi
 #  msg "installBinTarfile is $installBinTarfile"
 # sometimes the pkgname is different from the src filename
   separator="-"
@@ -9471,15 +9692,15 @@ if $single_package; then
       echo "No binary tarfile found for package $SINGLE_PACKAGE"
     elif [ $retval -eq 0 ]; then # found
       echo "binary tarfile found for package $SINGLE_PACKAGE"
-msg "binTarfileVers is $binTarfileVers"
+      if $printit; then msg "binTarfileVers is $binTarfileVers"; fi
     fi
     rtrnName=""
     if [ ! -e $WgetList ]; then
       echo "$WgetList file doesn't exist"
       if [ "$SOURCES" = atinstall ]; then
-        msg "Will get the $WgetList file from the downloaded book"
+        if $printit; then msg "Will get the $WgetList file from the downloaded book"; fi
       else
-        msg "You need to download the source for $SINGLE_PACKAGE and place in $SourceDir"
+        if $printit; then msg "You need to download the source for $SINGLE_PACKAGE and place in $SourceDir"; fi
       fi
     else # wget-list in place so check single package exists
       if [ "$SOURCES" != atinstall ]; then
@@ -9566,23 +9787,23 @@ msg "binTarfileVers is $binTarfileVers"
         fi
       fi
     else # SOURCES=atinstall
-      msg "SOURCES=atinstall Will check that the wget-list and md5sums files are present"
+      if $printit; then msg "SOURCES=atinstall Will check that the wget-list and md5sums files are present"; fi
 #      msg "filesNotPresent is ${filesNotPresent[0]}"
       if [ ! -d $SourceDir ]; then install -v -m0755 -d $SourceDir; fi
       if [ ! -e $WgetList ]; then
-        msg "the wget-list file $WgetList doesn't exist. Will get it from the downloaded book"
+        if $printit; then msg "the wget-list file $WgetList doesn't exist. Will get it from the downloaded book"; fi
         REPODIR="${bookDir}/${trunkDIR}/lfs"
-        msg "REPODIR is $REPODIR"
+        if $printit; then msg "REPODIR is $REPODIR"; fi
         make -j1 -f ${REPODIR}/Makefile -C $REPODIR BASEDIR=$SourceDir REV="systemd" $WgetList ${SourceDir}/md5sums
         md5sums=${SourceDir}/md5sums
       else
-        msg "wget-list file $WgetList is in place"
+        if $printit; then msg "wget-list file $WgetList is in place"; fi
       fi
       if [ -z "$md5sums" ]; then md5sums=${SourceDir}/md5sums; fi
       if [ ! -e $md5sums ]; then
-        msg "the md5sums file $md5sums doesn't exist. Will get it from the downloaded book"
+        if $printit; then msg "the md5sums file $md5sums doesn't exist. Will get it from the downloaded book"; fi
       else
-        msg "md5sums file $md5sums is in place"
+       if $printit; then msg "md5sums file $md5sums is in place"; fi
       fi
     fi
 # check if the file is empty
@@ -9610,7 +9831,7 @@ else # all sources requested
     if [ "$SOURCES" = atinstall ]; then # need the wget-list file and the md5sums
       if [ ! -e $WgetList ]; then # wget-list doesn't exist, get it from the book
         REPODIR="${bookDir}/${trunkDIR}/lfs"
-        msg "REPODIR is $REPODIR"
+        if $printit; then msg "REPODIR is $REPODIR"; fi
         make -j1 -f ${REPODIR}/Makefile -C $REPODIR BASEDIR=$SourceDir REV="systemd" $WgetList ${SourceDir}/md5sums
         md5sums=${SourceDir}/md5sums
       else
@@ -9786,9 +10007,9 @@ if $installBinTarfile; then
   : # continue
 else
   if [ -d $SourceDir -a "$(ls -A $SourceDir)" ]; then # source dir exists and has files in it
-    msg "source dir $SourceDir exists and contains files"
+    if $printit; then msg "source dir $SourceDir exists and contains files"; fi
 # get src versions for all the following plus any patch file names
-    listPkgs=(bash binutils bzip2 coreutils dbus elfutils flit gcc glibc gmp installer kbd kernel mpc mpfr perl python3 readline shadow systemd tcl util-linux xz zstd)
+    listPkgs=(bzip2 coreutils dbus elfutils flit gcc glibc gmp installer kbd kernel mpc mpfr ncurses perl python3 readline shadow systemd tcl util-linux xz zstd)
     if [ ! -f $WgetList ]; then
       echo "The required wget-list file does not exist"
       echo "You need the file $WgetList in order to continue"
@@ -9803,17 +10024,17 @@ else
     if [[ "$Chapter" = chapter08 || "$Chapter" = update ]]; then
       if [ -z "$foundFlit" ]; then
         echo 'https://github.com/pypa/flit/archive/refs/tags/3.7.1.tar.gz' >> $WgetList
-        msg "added the URL for flit to the wget-list file"
+        if $printit; then msg "added the URL for flit to the wget-list file"; fi
       else
-        msg "The URL for flit is in $WgetList"
+        if $printit; then msg "The URL for flit is in $WgetList"; fi
       fi
     fi
     if [[ "$Chapter" = chapter08 || "$Chapter" = update ]]; then
       if [ -z "$foundInstaller" ]; then
         echo 'https://github.com/pypa/installer/archive/refs/tags/0.5.1.tar.gz' >> $WgetList
-        msg "added the URL for installer to the wget-list file"
+        if $printit; then msg "added the URL for installer to the wget-list file"; fi
       else
-        msg "The URL for installer is in $WgetList"
+        if $printit; then msg "The URL for installer is in $WgetList"; fi
       fi
     fi
 # read the contents of the wget-list file into a variable for the src downloads
@@ -9861,22 +10082,22 @@ else
              fi
            fi
          ;;
-#         binutils) # currently (09/22) no patch for binutils
-#           patchSearch='*binutils*.patch*'
-#           if [ "$SOURCES" = atinstall ]; then # use md5sums
-#             binutilsPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
-#           else # use the src dir
-#              binutilsPatch=$(getPatchName "" $patchSearch $SourceDir)
-#              binutilsPatch=${binutilsPatch##*/} # just the filename
-#           fi
-#           ret_val=$?
-#           if [ $ret_val -eq $RETURN_PARAM ]; then
-#             echo "failed to get binutils patch name"
-#             echo "*** Investigate ***"
-#           else
-#             echo "binutils patch is $binutilsPatch"
-#           fi
-#         ;;
+         binutils)
+           patchSearch='*binutils*.patch*'
+           if [ "$SOURCES" = atinstall ]; then # use md5sums
+             binutilsPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+           else # use the src dir
+              binutilsPatch=$(getPatchName "" $patchSearch $SourceDir)
+              binutilsPatch=${binutilsPatch##*/} # just the filename
+           fi
+           ret_val=$?
+           if [ $ret_val -eq $RETURN_PARAM ]; then
+             echo "failed to get binutils patch name"
+             echo "*** Investigate ***"
+           else
+             echo "binutils patch is $binutilsPatch"
+           fi
+         ;;
          bzip2)
            getbzip2Patch=false
            if $single_package; then
@@ -9928,7 +10149,7 @@ else
              fi
            fi
          ;;
-         coreutils) # there is 1 patch for coreutils
+         coreutils)
            getcoreutilsPatch=false
            if $single_package; then
              if [ "$SINGLE_PACKAGE" = coreutils ]; then getcoreutilsPatch=true; fi
@@ -10113,7 +10334,7 @@ else
              fi
            fi
          ;;
-         glibc)
+         glibc) # needs a patch
            getglibcVers=false 
            if $single_package; then
              if [ "$SINGLE_PACKAGE" = glibc ]; then getglibcVers=true; fi
@@ -10232,7 +10453,7 @@ else
              fi
            fi
          ;;
-         kbd)
+         kbd) # get a patch
            getkbdVers=false
            if $single_package; then
              if [ "$SINGLE_PACKAGE" = kbd ]; then getkbdVers=true; fi
@@ -10329,7 +10550,7 @@ else
                echo "kernel version from the commands is $linuxcomvers"
              fi
              if [ "$linuxvers" != "$linuxcomvers" ]; then
-               msg "*** WARNING *** Linux version from the srcfile is different from the book"
+               if $printit; then msg "*** WARNING *** Linux version from the srcfile is different from the book"; fi
              fi
            fi
          ;;
@@ -10403,6 +10624,43 @@ else
                elif [ $retval -eq 0 ]; then
                  mpfrvers=$rtrvers
                  if [ ! -z "$mpfrvers" ]; then echo "mpfr version is $mpfrvers"; fi
+               fi
+             fi
+           fi
+         ;;
+         ncurses) # need the version
+           getncursesVers=false
+           if $single_package; then
+             if [ "$SINGLE_PACKAGE" = ncurses ]; then getncursesVers=true; fi
+           elif [ "$Chapter" != chapter07 -a "$Chapter" != chapter10 ]; then
+             getncursesVers=true
+           fi
+           if $getncursesVers; then
+             searchStr="*ncurses-*"
+             ncursesvers=""
+             if [ "$SOURCES" = atinstall ]; then # use the md5sums file
+               ncursesvers=$(getMd5sumInfo "pkgVers" srcFileName $searchStr)
+               if [ ! -z "$ncursesvers" ]; then
+                 echo "ncurses version is $ncursesvers"
+               else
+                 echo "return value for ncurses is $?"
+                 echo "Investigate why this didn't work"
+                 exit 1
+               fi
+             else # use source dir
+               rtrvers=""
+#msg "*** CALLING GetPkgVersion, srcFile is ncurses- ***"
+               GetPkgVersion $SourceDir ncurses- ".tar"
+               retval=$?
+               if [ $retval -eq $RETURN_PARAM ]; then
+                 echo "*** Directory $SourceDir doesn't exist ***"
+               elif [ $retval -eq $RETURN_FNF ]; then
+                 echo "*** No file found containing the name ncurses- and tar found ***"
+               elif [ $retval -eq $RETURN_MTOV ]; then
+                 echo "*** More than one version of ncurses- found in $SourceDir ***"
+               elif [ $retval -eq 0 ]; then
+                 ncursesvers=$rtrvers
+                 if [ ! -z "$ncursesvers" ]; then echo "ncurses version is $ncursesvers"; fi
                fi
              fi
            fi
@@ -10548,7 +10806,7 @@ else
              fi
            fi
          ;;
-         readline) # needs a patch
+         readline) # need a patch
            getreadlineVers=false
            if $single_package; then
              if [ "$SINGLE_PACKAGE" = readline ]; then getreadlineVers=true; fi
@@ -10579,24 +10837,24 @@ else
            elif [ "$Chapter" = chapter08 -o "$Chapter" = update ]; then
              getshadowVers=true
            fi
-#           if $getshadowVers; then
-#             patchSearch='*shadow*.patch*'
-#             if [ "$SOURCES" = atinstall ]; then # use md5sums
-#               shadowPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
-#             else # use the src dir
-#               shadowPatch=$(getPatchName "" $patchSearch $SourceDir)
-#               shadowPatch=${shadowPatch##*/} # just the filename
-#             fi
-#             ret_val=$?
-#             if [ $ret_val -eq $RETURN_PARAM ]; then
-#               echo "failed to get shadow patch name"
-#               echo "*** Investigate ***"
-#             else
-#               echo "shadow patch is $shadowPatch"
-#             fi
-#           fi
+           if $getshadowVers; then
+             patchSearch='*shadow*.patch*'
+             if [ "$SOURCES" = atinstall ]; then # use md5sums
+               shadowPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+             else # use the src dir
+               shadowPatch=$(getPatchName "" $patchSearch $SourceDir)
+               shadowPatch=${shadowPatch##*/} # just the filename
+             fi
+             ret_val=$?
+             if [ $ret_val -eq $RETURN_PARAM ]; then
+               echo "failed to get shadow patch name"
+               echo "*** Investigate ***"
+             else
+               echo "shadow patch is $shadowPatch"
+             fi
+           fi
          ;;
-         systemd) # need the man-pages
+         systemd) # need the man-pages and a patch
            getsystemdVers=false
            if $single_package; then
              if [ "$SINGLE_PACKAGE" = systemd ]; then getsystemdVers=true; fi
@@ -10604,21 +10862,20 @@ else
              getsystemdVers=true
            fi
            if $getsystemdVers; then
-# currently (04/11/22) no patch required
-#             patchSearch='*systemd*.patch*'
-#             if [ "$SOURCES" = atinstall ]; then # use the md5sums file
-#               systemdPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
-#             else # use the src dir
-#               systemdPatch=$(getPatchName "" $patchSearch $SourceDir)
-#               systemdPatch=${systemdPatch##*/} # just the filename
-#             fi
-#             ret_val=$?
-#             if [ $ret_val -eq $RETURN_PARAM ]; then
-#               echo "failed to get systemd patch name"
-#               echo "*** Investigate ***"
-#             else
-#               echo "systemd patch is $systemdPatch"
-#             fi
+             patchSearch='*systemd*.patch*'
+             if [ "$SOURCES" = atinstall ]; then # use the md5sums file
+               systemdPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+             else # use the src dir
+               systemdPatch=$(getPatchName "" $patchSearch $SourceDir)
+               systemdPatch=${systemdPatch##*/} # just the filename
+             fi
+             ret_val=$?
+             if [ $ret_val -eq $RETURN_PARAM ]; then
+               echo "failed to get systemd patch name"
+               echo "*** Investigate ***"
+             else
+               echo "systemd patch is $systemdPatch"
+             fi
              if [ "$SOURCES" = atinstall ]; then # use the md5sums file
                for srcFile in ${srcFileName[@]}; do
                  case $srcFile in
@@ -10678,7 +10935,7 @@ else
                     *tcl8.*)
                       rtrvers=""
                       tclvers=""
-msg "*** CALLING GetPkgVersion, srcFile is $srcFile ***"
+#msg "*** CALLING GetPkgVersion, srcFile is $srcFile ***"
                       GetPkgVersion "" $srcFile "-src" "."
                       if [ "$?" = 0 ]; then
                         tclvers=$rtrvers
@@ -10778,7 +11035,7 @@ msg "*** CALLING GetPkgVersion, srcFile is $srcFile ***"
 #             fi
 #           fi
          ;;
-         zstd)
+         zstd) # need a patch
            getzstdPatch=false
            if $single_package; then
              if [ "$SINGLE_PACKAGE" = zstd ]; then getzstdPatch=true; fi
@@ -10813,29 +11070,29 @@ fi # test installBinTarfile
 #
 if $single_package; then
   if [[ "$SINGLE_PACKAGE" = kernel || "$SINGLE_PACKAGE" = "linux-headers" ]]; then # get the latest kernel from the website
-    msg "getting the latest kernel source version from kernel.org"
-    msg "Please wait ..."
+    if $printit; then msg "getting the latest kernel source version from kernel.org"; fi
+    if $printit; then msg "Please wait ..."; fi
     getLatestKernel
     retval=$?
     if [ $retval -eq $RETURN_PARAM ]; then
-      msg "return from getLatestKernel is $retval"
-      msg "Is python beautifulsoup4 installed on the host?"
-      msg "Aborting"
+      echo "return from getLatestKernel is $retval"
+      echo "Is python beautifulsoup4 installed on the host?"
+      echo "Aborting"
       exit 1
     elif [ $retval -eq $RETURN_OTHER_ERR ]; then
-      msg "error return from getLatestKernel"
-      msg "Investigate"
+      echo "error return from getLatestKernel"
+      echo "Investigate"
     elif [ $retval -eq 0 ]; then
-      msg "the latest kernel src file from kernel.org is $kernSrcFile"
-      msg "If installing a fresh version of the kernel or linux-headers, then"
-      msg "will use the latest kernel version which is $kernLatestVers"
+      echo "the latest kernel src file from kernel.org is $kernSrcFile"
+      echo "If installing a fresh version of the kernel or linux-headers, then"
+      echo "will use the latest kernel version which is $kernLatestVers"
     fi
   fi
 else # all packages in a chapter, get the latest kernel version
   if ! $installBinTarfile; then
     useKernLatest=false
-    msg "getting the latest kernel source version from kernel.org"
-    msg "Please wait ..."
+    if $printit; then msg "getting the latest kernel source version from kernel.org"; fi
+    if $printit; then msg "Please wait ..."; fi
 # if kernel.org is slow, uncomment the next 3 lines and comment getLatestKernel and the 3 retval tests
 #    kernSrcFile="linux-6.1.tar.xz"
 #    kernLatestVers="6.1"
@@ -10843,42 +11100,42 @@ else # all packages in a chapter, get the latest kernel version
     getLatestKernel
     retval=$?
     if [ $retval -eq $RETURN_PARAM ]; then
-      msg "return from getLatestKernel is $retval"
-      msg "Is python beautifulsoup4 installed on the host?"
-      msg "Aborting"
+      echo "return from getLatestKernel is $retval"
+      echo "Is python beautifulsoup4 installed on the host?"
+      echo "Aborting"
       exit 1
     elif [ $retval -eq $RETURN_OTHER_ERR ]; then
-      msg "error return from getLatestKernel"
-      msg "Investigate"
+      echo "error return from getLatestKernel"
+      echo "Investigate"
     elif [ $retval -eq 0 ]; then
-      msg "the latest kernel src file from kernel.org is $kernSrcFile"
+      echo "the latest kernel src file from kernel.org is $kernSrcFile"
     fi
 # check if the linux-headers file is in the /build dir
     linuxHeadersFile=$(getLinuxFile)
     retval=$?
     if [ $retval -eq $RETURN_PARAM ]; then
-      msg "The build directory for linux-headers doesn't exist"
-      msg "If installing the kernel or linux-headers, then"
-      msg "will use the latest kernel version which is $kernLatestVers"
+      echo "The build directory for linux-headers doesn't exist"
+      echo "If installing the kernel or linux-headers, then"
+      echo "will use the latest kernel version which is $kernLatestVers"
       useKernLatest=true
     elif [ $retval -eq 0 ]; then
-      msg "The installed linux-headers file is $linuxHeadersFile"
+      echo "The installed linux-headers file is $linuxHeadersFile"
       rtrvers=""
       kernLatestVers=""
       GetPkgVersion "" $linuxHeadersFile ".tar"
       if [ "$?" = 0 ]; then
         if [ ! -z "$rtrvers" ]; then
           kernLatestVers=$rtrvers # global
-          msg "If installing the kernel or linux-headers, then"
-          msg "will use the latest linux headers version which is $kernLatestVers"
+          echo "If installing the kernel or linux-headers, then"
+          echo "will use the latest linux headers version which is $kernLatestVers"
           useKernLatest=true
         else
-          msg "rtrvers is NULL. Can't get the kernel version"
-          msg "Investigate why this failed"
+          echo "rtrvers is NULL. Can't get the kernel version"
+          echo "Investigate why this failed"
         fi
       else
-        msg "return value for kernel vers from GetPkgVersion is $? It should be zero"
-        msg "Investigate why this didn't work"
+        echo "return value for kernel vers from GetPkgVersion is $? It should be zero"
+        echo "Investigate why this didn't work"
       fi
     fi
   fi
