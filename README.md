@@ -52,9 +52,10 @@ Additionally, you can do: installpkg PACKAGE-NAME INSTALL_DIR UID
 to specify the user id number. By default the uid starts at 10000 and increments with each package added. You can override this by specifying the uid. This is useful for packages such as apache and avahi which have suggested uids in the blfs book, when you get to BLFS.
 
 listdelpkg.sh will list all files belonging to a PACKAGE-USER and will allow you to delete all those files. Obviously, before you delete a package, list all the files first to see which ones will be removed.
-To list files for a package do: listdelpkg.sh <PACKAGE-USER>
-To delete files for a package do: listdelpkg.sh <PACKAGE-USER> <PACKAGE-USER> delete
+
+To list files for a package do: listdelpkg.sh <PACKAGE_USER>
+To delete files for a package do: listdelpkg.sh <PACKAGE_USER> <PACKAGE_USER> delete
 Or to delete any install directories for a package do:
-listdelpkg.sh <PACKAGE-USER> install delete
+listdelpkg.sh <PACKAGE_USER> install delete
 
 Finally, by default the tests are not run. If you wish to run them, set TESTS=yes in the lfsa config file. ** WARNING ** - running the tests has not been tested ;) so will probably be buggy.
