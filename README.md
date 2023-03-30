@@ -3,7 +3,7 @@ Here is the recipe to use these scripts:
 ** NOTE ** The scripts are set up to install LFS with systemd. You can set SYSTEMD in the config menu to no in order to install the sysv version, but this has not been thoroughly tested so will probably fail.
 
 First ensure you have these installed on your host:
-vim, bison, patch, gawk, dialog, git, texinfo, libxml2, xsltproc, libxml2-utils, tidy, docbook-xml and docbook-xsl.
+vim, bison, patch, gawk, dialog, git, texinfo, libxml2, xsltproc, libxml2-utils, tidy, wget, python-beautifulsoup4, docbook-xml and docbook-xsl.
 You can also customize the dialog menus by using a .dialogrc file in your root dir.
 go to: bash.cyberciti.biz/guide/Dialog_customization_with_configuration_file
 If you need the dialog source, it is here: ftp://invisible-island.net/dialog
