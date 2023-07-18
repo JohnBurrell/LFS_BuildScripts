@@ -2239,7 +2239,7 @@ else
       ((countg++))
     else
       case "$line" in
-         sed*)
+         *"sed "*)
            echo "$line"
            ((countg++))
          ;;
@@ -2289,6 +2289,10 @@ else
            break
          ;;
          *"LANG=en_US.UTF-8"*) # systemd has this at start of configure
+           countg=$(expr $countg - $contline)
+           break
+         ;;
+         "meson setup "*) # has replaced meson --prefix
            countg=$(expr $countg - $contline)
            break
          ;;
@@ -3384,7 +3388,7 @@ rm -rf \$curdir
 rm -rf .wget-hsts .cache"
 } # end of delSrcFile
 #
-# for py3-flit-core and py3-installer don't need the rm -rf lines as there's no source file
+# for py3-installer don't need the rm -rf lines as there's no source file
 delPy3File () {
 echo "cd \$curdir
 if ! \$usePip; then cd ..; fi"
@@ -3443,9 +3447,6 @@ case $PkgName in
    ;;
    python3)
       packageName="Python"
-   ;;
-   py3-flit-core)
-      packageName="flit-core"
    ;;
    py3-installer)
       packageName="installer"
@@ -3784,9 +3785,6 @@ case $pkgname in
    make) # get make not automake
      serchstr="*/make-[0-9]*"
    ;;
-   py3-flit-core)
-     serchstr="*flit*"
-   ;;
    py3-installer)
      serchstr="*installer*"
    ;;
@@ -3838,9 +3836,6 @@ msg "srcURL is $srcURL"
           ;;
           make) # get make not automake
             if [ "$Chapter" != update ]; then useThisSrcLoc="${buildDir}/${FuncName}"; fi
-          ;;
-          py3-flit-core) # installed in chapter8 from /usr/src/pythonmodules/py3-flit-core
-            if [ "$Chapter" = chapter08 ]; then useThisSrcLoc="${buildDir}/py3-flit-core"; fi
           ;;
           py3-installer) # installed in chapter8 from /usr/src/pythonmodules/py3-installer
             if [ "$Chapter" = chapter08 ]; then useThisSrcLoc="${buildDir}/py3-installer"; fi
@@ -3999,6 +3994,25 @@ elif [ -e ${sourceloc}/${tzdataFile} ]; then
 else # download it
   if [ -e /usr/bin/wget ]; then # wget exists on target machine
     wget $wgetopts $ncc -O ../${tzdataFile} "https://www.iana.org/time-zones/repository/releases/${tzdataFile}"
+  else
+    echo "/usr/bin/wget not found on the target machine"
+    echo "Install it to continue"
+    echo "Aborting"
+    exit 1
+  fi
+fi
+EOF
+   ;;
+   grub) # need the patch
+     echo "grubPatch=\"$grubPatch\"" >> $Output
+     cat >> $Output << "EOF" 
+if [ -e ${CUR_DIR}/${grubPatch} ]; then
+  echo "patch already in place - will use that"
+elif [ -e ${sourceloc}/${grubPatch} ]; then
+  cp -v ${sourceloc}/${grubPatch} ../
+else # download it
+  if [ -e /usr/bin/wget ]; then # wget exists on target machine
+    wget $wgetopts $ncc -O ../${grubPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${grubPatch}"
   else
     echo "/usr/bin/wget not found on the target machine"
     echo "Install it to continue"
@@ -4490,22 +4504,17 @@ EOF
      fi
      cat >> $Output << "EOF"
 #!/bin/bash -ex
-# Arch Linux Meson wrapper
+# wrapper for Arch Linux packaging
 
 exec meson setup \
   --prefix         /usr \
-  --libdir         /usr/lib \
-  --libexecdir     /usr/lib \
-  --bindir         /usr/bin \
-  --sbindir        /usr/bin \
-  --includedir     /usr/include \
-  --datadir        /usr/share \
-  --mandir         /usr/share/man \
-  --infodir        /usr/share/info \
-  --localedir      /usr/share/locale \
+  --libexecdir     lib \
+  --sbindir        bin \
   --sysconfdir     /etc \
   --localstatedir  /var \
   --sharedstatedir /var/lib \
+  --buildtype      plain \
+  --auto-features  enabled \
   --wrap-mode      nodownload \
   -D               b_lto=true \
   -D               b_pie=true \
@@ -4779,21 +4788,11 @@ esac
 } # end setInstallDirs
 #
 postProcessing () {
+# Any post processing can be done here
 # $1 is the package name
 local pkgname=$1
 #
 case $pkgname in
-   py3-flit-core) # remove the tests dir
-     if ! $useDESTDIR; then
-       cat >> $Output << "EOF"
-rm -rf /usr/lib/python*/site-packages/flit_core/tests
-EOF
-     else
-       cat >> $Output << "EOF"
-rm -rf ${PkgUserDir}/${PkgName}/usr/lib/python*/site-packages/flit_core/tests
-EOF
-     fi
-   ;;
 esac
 } # end postProcessing
 #
@@ -5029,10 +5028,10 @@ EOF
 		elif [ "$FuncName" = openssl ]; then # set the GID to 10055, the value in Ch8
                   uidVal=10055
                   gidVal=10055
-                elif [ "$FuncName" = wget ]; then # set the GID to 10171, it is deleted at end of LFS
+                elif [ "$FuncName" = wget ]; then # set the GID to 10170, it is deleted at end of LFS
 # because it is reinstalled in BLFS
-                  uidVal=10171
-                  gidVal=10171
+                  uidVal=10170
+                  gidVal=10170
 	        fi
                 echo "uidVal=$uidVal
 gidVal=$gidVal" >> $Output
@@ -5265,24 +5264,14 @@ EOF
 		esac
                 cat >> $Output << "EOF"
 # source the environment variables in the home dir
-EOF
-echo ". \${PkgUserDir}/\${PkgName}/.bashrc" >> $Output
-                cat >> $Output << "EOF"
+source ${PkgUserDir}/${PkgName}/.bashrc
 # check some env variable values
-if [ "$LFS" != /mnt/lfs ]; then
-  echo "LFS is set to $LFS"
-  echo "It should be /mnt/lfs"
-  echo "Abort"
-  exit 1
-fi
-if [ -z "$LFS_TGT" ]; then # not set. This will not work so abort
-  echo "env variable LFS_TGT not set"
-  echo "Aborting"
-  exit 1
-elif [ "$LFS_TGT" != x86_64-lfs-linux-gnu ]; then
-  echo "LFS_TGT is not set to x86_64-lfs-linux-gnu"
-  echo "It is set to $LFS_TGT"
-  echo "check that this is what you intended, then modify this script"
+#echo "LFS is $LFS"
+#echo "LFS_TGT is $LFS_TGT"
+#echo "PATH is $PATH"
+#echo "CONFIG_SITE is $CONFIG_SITE"
+if [ "$LFS" != "/mnt/lfs" ]; then # abort
+  echo "LFS not set to /mnt/lfs - abort"
   exit 1
 fi
 EOF
@@ -5297,7 +5286,7 @@ if [ "$(grep -q ^$FuncName $BuildLog;echo $?)" == 0 ]; then
   echo "skipping $FuncName"
   return 0
 else
-  echo "In function $FuncName"
+  echo -e "\n In function $FuncName"
 fi
 EOF
                  ;;
@@ -5315,7 +5304,7 @@ if [ "$(grep -q ^$FuncName $BuildLog;echo $?)" == 0 ]; then
   echo "skipping $FuncName"
   return 0
 else
-  echo "In function $FuncName"
+  echo -e "\n In function $FuncName"
 fi
 EOF
                  ;;
@@ -5336,9 +5325,6 @@ EOF
                         SrcName="Python-"
                         CmdName="Python"
                       ;;
-                      py3-flit-core)
-                        SrcName="flit-"
-                      ;;
                       py3-installer)
                         SrcName="installer-"
                       ;;
@@ -5350,8 +5336,8 @@ EOF
                       ;;
                    esac
                    echo "PkgName=$PkgName" >> $Output
-# NOTE - the py3-flit-core and  py3-installer dir is in /usr/src/pythonmodules, so have to tell the script
-                   if [[ "$PkgName" = "py3-flit-core" || "$PkgName" = "py3-installer" ]]; then
+# NOTE - the py3-installer dir is in /usr/src/pythonmodules, so have to tell the script
+                   if [ "$PkgName" = "py3-installer" ]; then
                      cat >> $Output << "EOF"
 PkgUserDir="/usr/src/pythonmodules"
 EOF
@@ -5440,14 +5426,6 @@ starttime=\$( date +%s )
                        : # continue
                      else
                        case $PkgName in
-                          py3-flit-core) # install dir is pythonmodules
-                            echo "pkgVers=$flitVers" >> $Output
-                            if $useDESTDIR; then
-                              getUrlSrcDnld $useUnpack "$PkgName" '${SrcName}${pkgVers}.tar.gz' "/usr/src/pythonmodules"
-                            else
-                              echo "# don't need to call unpack, using pip to install the module" >> $Output
-			    fi
-                          ;;
                           py3-installer) # install dir is pythonmodules
                             echo "pkgVers=$installerVers" >> $Output
                             if $useDESTDIR; then
@@ -5531,8 +5509,8 @@ EOF
                           ;;
                        esac
                      elif [[ "$SOURCES" = atinstall ]]; then # get the srcURL and download any extra files
-# py3-flit-core and py3-installer are installed using pip, not from the source tarfile
-                       if [[ "$PkgName" != "py3-flit-core" && "$PkgName" != "py3-installer" ]]; then
+# py3-installer is installed using pip, not from the source tarfile
+                       if [ "$PkgName" != "py3-installer" ]; then
                          useUnpack="unpack"
                          case $PkgName in
                             kernel|linux-headers) # check if a chapter10 install or an update
@@ -5581,7 +5559,7 @@ msg "PkgName is $PkgName"
                               dnldAddFiles
                             ;;
                          esac
-                       fi
+                       fi # test not py3-installer
                      fi
                    fi # end test building as root
                  ;;
@@ -5614,7 +5592,7 @@ EOF
      man-pages)
        echo "sed -i '/install -d -m 755 \\\\\$(DESTDIR)\\\\\$(MANDIR)/d ' Makefile" >> $Output
      ;;
-     py3-flit-core|py3-installer) # don't call unpack but need to set timings
+     py3-installer) # don't call unpack but need to set timings
        if [[ ("$Chapter" = chapter08 || "$Chapter" = update) && "$useDESTDIR" = false ]]; then
          cat >> $Output << "EOF"
 # using binaries from Pypi so don't call unpack
@@ -5702,8 +5680,14 @@ EOF
             binutilspass1)
               if ! $useDESTDIR; then
                 cat >> $Output << "EOF"
-chgrp install $LFS/tools/{bin,lib,share/{,info,man/{,man1}},x86_64-lfs-linux-gnu/{,bin,lib/{,ldscripts}}}
-chmod 1775 $LFS/tools/{bin,lib,share/{,info,man/{,man1}},x86_64-lfs-linux-gnu/{,bin,lib/{,ldscripts}}}
+install -dm755 $LFS/tools/share/man/man{1..8}
+if ! $AS_ROOT; then
+  chown binutils $LFS/tools/share/man/man{1..8}
+  chgrp install $LFS/tools/{bin,lib,share/{,info,man/{,man{1..8}}},x86_64-lfs-linux-gnu/{,bin,lib/{,ldscripts}}}
+  chmod 1775 $LFS/tools/{bin,lib,share/{,info,man/{,man{1..8}}},x86_64-lfs-linux-gnu/{,bin,lib/{,ldscripts}}}
+  chgrp install $LFS/tools/share/info/dir
+  chmod 664 $LFS/tools/share/info/dir
+fi
 EOF
               fi
             ;;
@@ -5744,11 +5728,7 @@ chgrp install $LFS/usr/share/info
 chmod 1775 $LFS/usr/share/info
 chgrp install $LFS/var/lib
 chmod 1775 $LFS/var/lib
-# run this as root and set resulting files owned by gcc
-LFS_TGT="x86_64-lfs-linux-gnu"
 EOF
-echo '$LFS/tools/libexec/gcc/$LFS_TGT/"'$gccvers'"/install-tools/mkheaders
-chown gcc:gcc /mnt/lfs/tools/lib/gcc/$LFS_TGT/"'$gccvers'"/include-fixed/{limits.h,pthread.h,syslimits.h}' >> $Output
               fi
             ;;
             linuxheaders)
@@ -5899,11 +5879,11 @@ EOF
              if $installBinTarfile; then # delete the binary dirs
                echo "rm -rf etc opt run usr var" >> $Output
              else
-               if [[ "$PkgName" = "py3-flit-core" || "$PkgName" = "py3-installer" ]]; then
+               if [ "$PkgName" = "py3-installer" ]; then
                  delPy3File >> $Output
-             else
+                else
                  delSrcFile >> $Output
-             fi
+                fi
              fi
              if [ "$PkgName" = glibc ]; then #also delete glibc-build
                echo "rm -rf glibc-build" >> $Output
@@ -5933,7 +5913,7 @@ if [ "$(grep -q ^$PkgName\: /etc/passwd;echo $?)" != 0 ]; then
 fi
 EOF
                   ;;
-                  py3-flit-core|py3-installer)
+                  py3-installer)
                     cat >> $Output << "EOF"
 if [ "$(grep -q ^$PkgName\: /etc/passwd;echo $?)" != 0 ]; then
   installpkg $PkgName "pythonmodules"
@@ -6021,13 +6001,9 @@ EOF
 # set required dirs to be install dirs
                setInstallDirs $PkgName
 # do any post processing as root
-               postProcessing $PkgName
                if $useDESTDIR; then
                  if ! $installDEST; then # create the binary tarfile
                    case $PkgName in
-                      py3-flit-core)
-                          echo "createPkgfile \$PkgUserDir \$PkgName \"3.7.1\"" >> $Output
-                      ;;
                       linux-headers)
                           if [ ! -z "$useThisKernelVers" ]; then
                             echo "createPkgfile \$PkgUserDir \$PkgName \"$useThisKernelVers\"" >> $Output
@@ -6265,7 +6241,7 @@ EOF
 useThisKernelVers=$useThisKernelVers
 cp -iv ${kerneldir}\${useThisKernelVers}/arch/x86/boot/bzImage \${PkgUserDir}/\${PkgName}/boot/vmlinuz-\${useThisKernelVers}-lfs
 cp -iv ${kerneldir}\${useThisKernelVers}/System.map \${PkgUserDir}/\${PkgName}/boot/System.map-\${useThisKernelVers}
-cp -iv ${kerneldir}\${useThisKernelVers}/.config \${PkgUserDir}/\${PkgName}/boot/.config-\${useThisKernelVers}" >> $Output
+cp -iv ${kerneldir}\${useThisKernelVers}/.config \${PkgUserDir}/\${PkgName}/boot/config-\${useThisKernelVers}" >> $Output
           if [ "$Chapter" = update ]; then # create the binary tarfile
             echo "createPkgfile \$PkgUserDir \$PkgName \"\$useThisKernelVers\"" >> $Output
           fi
@@ -6273,7 +6249,7 @@ cp -iv ${kerneldir}\${useThisKernelVers}/.config \${PkgUserDir}/\${PkgName}/boot
           echo "useThisKernelVers=$useThisKernelVers
 cp -iv ${kerneldir}\${useThisKernelVers}/arch/x86/boot/bzImage /boot/vmlinuz-\${useThisKernelVers}-lfs
 cp -iv ${kerneldir}\${useThisKernelVers}/System.map /boot/System.map-\${useThisKernelVers}
-cp -iv ${kerneldir}\${useThisKernelVers}/.config /boot/.config-\${useThisKernelVers}" >> $Output
+cp -iv ${kerneldir}\${useThisKernelVers}/.config /boot/config-\${useThisKernelVers}" >> $Output
         fi
 #
 # only want the following code if Chapter is not update
@@ -6314,25 +6290,19 @@ if ! $AS_ROOT; then chown $PkgName:$PkgName /etc/{lfs-release,lsb-release,os-rel
 EOF
             if ! $as_root; then
                cat >> $Output << "EOF"
-# ask to delete files owned by wget in Chapter06
-echo "Do you want to delete the wget files? [y/N]"
-read Reply
-case $Reply in
-   [yY]|[yY][Ee][Ss])
-     echo "okay, the wget files will be deleted"
-     /usr/bin/listdelpkg.sh 10171 10171 delete
-   ;;
-   *)
-     echo "The wget list files will be left in place"
-   ;;
-esac
+# delete files owned by wget in Chapter06
+# wget is set up as 10170:10170 but will be installed properly in blfs
+echo "Deleting temporary files owned by wget"
+/usr/bin/listdelpkg.sh 10170 10170 delete
 # change owner of /usr/share/locale/en_GB and rw installed by wget
 chown bash:bash /usr/share/locale/{en_GB,rw}
 chown bash:install /usr/share/locale/{rw/LC_MESSAGES,en_GB/LC_MESSAGES}
+# delete /usr/src/core/wget as it's not a core file
+rm -rf /usr/src/core/wget
 EOF
             fi
             cat >> $Output << "EOF"
-# ask to delete the build dir from Ch. 5 and 6
+# ask to delete the build dir used in Ch. 5 and 6
 echo "Do you want to delete the /build dir from Ch. 5 and 6? [Y/n]"
 read Reply
 case $Reply in
@@ -6853,7 +6823,8 @@ testBuilt=".${Chapter/apter/}${PkgName}"
 if [ -e ${buildDir}/${FuncName}/${testBuilt} ]; then
   echo "skipping $FuncName"
   return 0
-  echo "Building $FuncName"
+else
+  echo -e "\n Building $FuncName"
 fi
 EOF
 } #end TestBuiltCh56
@@ -6874,7 +6845,7 @@ if [ -e ${PkgUserDir}/${PkgName}/${testBuilt} ]; then
   echo "skipping $PkgName"
   return 0
 else
-  echo "Building $PkgName"
+  echo -e "\n Building $PkgName"
 fi
 EOF
 } # end TestBuiltAny
@@ -7014,10 +6985,16 @@ case $PkgName in
     ;;
     bash)
         if [ "$currentChapter" = chapter06 ]; then
-	  GetCommands \
-	   | sed -e '/mv $LFS\/usr\/bin\/bash/d' \
-	         -e 's/bin\/sh/usr\/bin\/sh/' \
-	   >> $Output
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+                   -e 's/\$LFS\/bin\/sh/\${LFS}\/build\/\${FuncName}\${LFS}\/bin\/sh/' \
+             >> $Output
+          else
+            GetCommands \
+             | sed -e 's/bin\/sh/usr\/bin\/sh/' \
+             >> $Output
+          fi
 	else # chapter08
           if [ "$SYSTEMD" = yes ]; then 
             if $useDESTDIR; then 
@@ -7051,32 +7028,49 @@ case $PkgName in
         >> $Output
     ;;
     binutils)
-        if $useDESTDIR; then
-          GetCommands \
-           | sed -e '/expect -c/d' \
-                 -e '/find -name/d' \
-                 -e 's/make tooldir=\/usr install/make prefix="${CUR_DIR}"\/usr tooldir="${CUR_DIR}"\/usr install/' \
+        if [ "$currentChapter" = chapter05 ]; then # binutilspass1
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter05 and 06
+            GetCommands \
+             | sed -e 's/make install/make DESTDIR="\$LFS\/build\/\$FuncName" install/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi
+        elif [ "$currentChapter" = chapter06 ]; then # binutilspass2 ]; then
+          if $useDESTDIR56; then
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+                   -e 's/rm -v \$LFS/rm -v \${LFS}\/build\/\${FuncName}\${LFS}/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi
+        else # chapter08 + update
+          if $useDESTDIR; then
+            GetCommands \
+             | sed -e 's/make tooldir=\/usr install/make prefix="${CUR_DIR}"\/usr tooldir="${CUR_DIR}"\/usr install/' \
                  -e '/rm -fv \/usr\/lib/i\install -m644 libiberty\/pic\/libiberty.a "${CUR_DIR}\/usr\/lib"' \
                  -e '/rm -fv \/usr\/lib/i\rm -fv "${CUR_DIR}"\/usr\/share\/man\/man1\/{dlltool,windres,windmc}*' \
                  -e 's/rm -fv \/usr\/lib\/lib{bfd/rm -fv ${CUR_DIR}\/usr\/lib\/lib{bfd/' \
-           | awk '{
+             | awk '{
 if ($1 == "mkdir" && $2 =="-v")
   print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
   print $0;
 }' \
-           >> $Output
-        else
-          GetCommands \
-           | sed -e '/expect -c/d' \
-                 -e '/find -name/d' \
-           | awk '{
+             >> $Output
+          else # not useDESTDIR
+            GetCommands \
+             | sed -e '/with-system-zlib/i\               --disable-help2man  \\' \
+                   -e '/make -k check/,/grep/d ' \
+             | awk '{
 if ($1 == "mkdir" && $2 =="-v")
   print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
   print $0;
 }' \
-           >> $Output
+             >> $Output
+          fi
         fi
     ;;
     bzip2)
@@ -7158,10 +7152,18 @@ echo "#\"" >> $Output
         fi
     ;;
     coreutils)
-	if [ "$currentChapter" = chapter06 ]; then
-	  GetCommands \
-	   | sed -e '/mv -v $LFS\/usr\/bin\/chroot/d' \
-	   >> $Output
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+                   -e '/mv -v \$LFS\/usr\/bin\/chroot/d' \
+                   -e 's/\$LFS\/usr\/share\/man/\${LFS}\/build\/\${FuncName}\${LFS}\/usr\/share\/man/g' \
+             >> $Output
+          else
+            GetCommands \
+             | sed -e '/mv -v \$LFS\/usr\/bin\/chroot/d' \
+             >> $Output
+          fi
 	else # chapter08
           if $useDESTDIR; then
             if [ "$SYSTEMD" = yes ]; then
@@ -7279,6 +7281,15 @@ echo "#\"" >> $Output
           GetInternalCommands dbusComms >> $Output
         fi
     ;;
+    diffutils)
+        if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+          GetCommands \
+           | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+           >> $Output
+        else
+          GetCommands >> $Output
+        fi
+    ;;
     e2fsprogs)
         if $useDESTDIR; then
           if [ "$SYSTEMD" = yes ]; then
@@ -7330,19 +7341,33 @@ echo "#\"" >> $Output
           GetCommands >> $Output
         fi
     ;;
-    file) # in chapter06 and 08 don't need to mv libmagic
-        GetCommands \
-         | sed -e '/libmagic.so/d' \
-         >> $Output
-    ;;
-    findutils)
-        if [ "$SYSTEMD" = yes ]; then
+    file)
+        if $useDESTDIR56; then # special case of using DESTDIR in chapter06
           GetCommands \
-           | sed -e 's/locate/locate --libexecdir=\/usr\/lib\/findutils/' \
-                 -e '/mv -v/,/sed -i/d' \
+           | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+                 -e 's/rm -v \$LFS/rm -v \${LFS}\/build\/\${FuncName}\${LFS}/' \
            >> $Output
         else
-          GetCommands >> $Output
+            GetCommands >> $Output
+        fi
+    ;;
+    findutils)
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi
+        else # chapter08
+          if [ "$SYSTEMD" = yes ]; then
+            GetCommands \
+             | sed -e 's/locate/locate --libexecdir=\/usr\/lib\/findutils/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi
         fi
     ;;
     flex)
@@ -7367,7 +7392,15 @@ echo "#\"" >> $Output
         fi
     ;;
     gawk)
-	if [ "$currentChapter" = chapter08 ]; then
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi       
+        else # chapter08
           if [ "$SYSTEMD" = yes ]; then
             GetCommands \
              | sed -e 's/prefix=\/usr/prefix=\/usr \\\n\              --libexecdir=\/usr\/lib \\\n\              --sysconfdir=\/etc \\\n\              --localstatedir=\/var/' \
@@ -7375,29 +7408,57 @@ echo "#\"" >> $Output
           else
             GetCommands >> $Output
           fi
-	else
-	  GetCommands >> $Output
 	fi
     ;;
     gcc)
-	if [ "FuncName" = libstdc++ ]; then
-          GetCommands \
-           | awk '{
+	if [ "$FuncName" = gcclibstdc++ ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter05 and 06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}"/' \
+                   -e 's/rm -v \$LFS\/usr/rm -v \${LFS}\/build\/\${FuncName}\${LFS}\/usr/' \
+             >> $Output
+          else
+            GetCommands \
+             | awk '{
 if ($1 == "mkdir" && $2 =="-v")
   print "if [ ! -e "$NF" ]; then\n  "$0"\nfi\n";
 else
   print $0;
 }' \
-           >> $Output
+             >> $Output
+          fi
 	else # gcc not libstdc++
-          if [ "$Chapter" != update ]; then
+          if [ "$currentChapter" = chapter05 ]; then # gccpass1
+            if $useDESTDIR56; then # special case of using DESTDIR in chapter05 and 06
+              GetCommands \
+               | sed -e 's/make install/make DESTDIR="\$LFS\/build\/\$FuncName" install/' \
+               >> $Output
+            else
+              GetCommands \
+               | awk '{if ($1 == "mkdir" && $2 =="-v")
+print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
+else
+print $0;
+}' \
+               >> $Output
+            fi
+          elif [ "$currentChapter" = chapter06 ]; then # gccpass2 ]; then
+            if $useDESTDIR56; then
+              GetCommands \
+               | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+                     -e 's/ln -sv gcc \$LFS/ln -sv gcc \${LFS}\/build\/\${FuncName}\${LFS}/' \
+               >> $Output
+            else
+              GetCommands >> $Output
+            fi
+          elif [ "$currentChapter" = chapter08 ]; then
             if [ "$SYSTEMD" = yes ]; then
               if $useDESTDIR; then
                 GetCommands \
                  | sed -e 's/with-system-zlib/with-system-zlib       \\\n\              --libdir=\/usr\/lib \\\n\              --libexecdir=\/usr\/lib/' \
                        -e '/chown -v -R root:root/,/include{,-fixed}/d' \
                        -e '/cpp \/usr\/lib/a mkdir -pv "${CUR_DIR}"\/usr\/lib\/bfd-plugins' \
-		       -e 's#cpp /usr/lib#cpp "${CUR_DIR}"/usr/lib#' \
+                       -e 's#cpp /usr/lib#cpp "${CUR_DIR}"/usr/lib#' \
                        -e 's#/usr/lib/bfd-plugins/#"${CUR_DIR}"/usr/lib/bfd-plugins/#' \
                        -e "/echo 'int main(){}' > dummy.c/,/rm -v dummy.c a.out dummy.log/d" \
                        -e 's/..\/..\/libexec/../' \
@@ -7408,29 +7469,19 @@ print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
 print $0;
 }' \
-                >> $Output
-              else # not DESTDIR
-                if [ "$currentChapter" = chapter05 ]; then 
-                  GetCommands \
-                   | awk '{if ($1 == "mkdir" && $2 =="-v")
+                 >> $Output
+              else # not useDESTDIR
+                GetCommands \
+                 | sed -e 's/--prefix=\/usr/--prefix=\/usr \\\n\               --libdir=\/usr\/lib \\\n\               --libexecdir=\/usr\/lib/' \
+                       -e '/chown -v -R root:root/,/\/usr\/lib\/gcc\/\$(gcc/d' \
+                       -e 's|/../libexec||' \
+                 | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
 print $0;
 }' \
-                   >> $Output
-                else # chapter 6 and 8
-                  GetCommands \
-                   | sed -e 's/--prefix=\/usr/--prefix=\/usr \\\n\               --libdir=\/usr\/lib \\\n\               --libexecdir=\/usr\/lib/' \
-                         -e '/chown -v -R root:root/,/\/usr\/lib\/gcc\/\$(gcc/d' \
-                         -e 's|/../libexec||' \
-                   | awk '{if ($1 == "mkdir" && $2 =="-v")
-print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
-else
-print $0;
-}' \
-                   >> $Output
-                fi # test Chapter = update
-              fi # test useDESTDIR
+                 >> $Output
+              fi
             else # SYSTEMD is no
               GetCommands \
                | sed -e "/ln -sv gcc/ a set +e" \
@@ -7518,9 +7569,11 @@ print $0
                >> $Output
             fi
           else # chapter05
-	    if ! $as_root; then
+            if $useDESTDIR56; then # special case of using DESTDIR in chapter05 and 06
               GetCommands \
-	       | sed -e '/install-tools\/mkheaders/d' \
+               | sed -e 's/\$LFS install/"\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+                     -e 's/ -i \$LFS\/usr\/bin\/ldd/ -i "\${LFS}\/build\/\${FuncName}\${LFS}\/usr\/bin\/ldd"/' \
+                     -e '/int main()/,/rm -v a.out/d' \
                | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
@@ -7590,12 +7643,22 @@ print $0
          >> $Output
     ;;
     grep)
-        if [ "$SYSTEMD" = yes ]; then
-           GetCommands \
-            | sed -e 's/--bindir=\/bin/--bindir=\/usr\/bin/' \
-            >> $Output
-        else
-           GetCommands >> $Output
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi       
+        else # chapter08
+          if [ "$SYSTEMD" = yes ]; then
+             GetCommands \
+              | sed -e 's/--bindir=\/bin/--bindir=\/usr\/bin/' \
+              >> $Output
+          else
+             GetCommands >> $Output
+          fi
         fi
     ;;
     groff)
@@ -7625,13 +7688,16 @@ print $0
         fi
     ;;
     gzip)
-        if [ "$SYSTEMD" = yes ]; then
-          GetCommands \
-           | sed -e 's/--bindir=\/bin/--bindir=\/usr\/bin/' \
-                 -e '/mv -v/d' \
-           >> $Output
-        else
-           GetCommands >> $Output
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi       
+        else # chapter08
+          GetCommands >> $Output
         fi
     ;;
     iana-etc)
@@ -7763,10 +7829,33 @@ print $0
         fi
     ;;
     linux-headers)
-        if [[ "$useDESTDIR" = true || "$single_package" = true ]]; then
+        if $useDESTDIR56; then # special case of using DESTDIR in chapter05 and 06
+          GetCommands \
+           | sed -e '/cp -rv usr/i\  mkdir -pv \${LFS}\/build\/\${FuncName}\${LFS}\/usr' \
+                 -e 's/\$LFS\/usr/\${LFS}\/build\/\${FuncName}\${LFS}\/usr/' \
+           >> $Output
+        elif [[ "$useDESTDIR" = true || "$single_package" = true ]]; then
           GetCommands \
            | sed -e '/cp -rv usr\/include/i\  mkdir -pv ${CUR_DIR}\/usr\/include' \
                  -e 's/include \/usr/include ${CUR_DIR}\/usr/' \
+           >> $Output
+        else
+          GetCommands >> $Output
+        fi
+    ;;
+    m4)
+        if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+          GetCommands \
+           | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
+           >> $Output
+        else
+          GetCommands >> $Output
+        fi
+    ;;
+    make)
+        if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+          GetCommands \
+           | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
            >> $Output
         else
           GetCommands >> $Output
@@ -7825,7 +7914,13 @@ print $0
     ;;
     ncurses)
         if [ "$currentChapter" = chapter06 ]; then
-          GetCommands >> $Output
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}"/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi
 	else # chapter08 and update
           if [ "$SYSTEMD" = yes ]; then
             if $useDESTDIR; then
@@ -7856,6 +7951,15 @@ print $0
           GetCommands \
            | sed -e 's/make MANSUFFIX/make DESTDIR="$CUR_DIR" MANSUFFIX/' \
                  -e 's/mv -v \/usr\/share\/doc\/openssl \/usr/mv -v "${CUR_DIR}"\/usr\/share\/doc\/openssl "${CUR_DIR}"\/usr/' \
+           >> $Output
+        else
+          GetCommands >> $Output
+        fi
+    ;;
+    patch)
+        if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+          GetCommands \
+           | sed -e 's/DESTDIR=\$LFS install/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}" install/' \
            >> $Output
         else
           GetCommands >> $Output
@@ -7904,27 +8008,6 @@ print $0
            >> $Output
         fi
     ;;
-    py3-flit-core)
-        if [ "$Chapter" = chapter08 ]; then
-          if $useDESTDIR; then # needs py3-installer installed to do a destdir install
-            GetInternalCommands pymodDestdirComms \
-             | sed -e 's/PYTHONPATH=src/PYTHONPATH=flit_core/' \
-             >> $Output
-          else
-            GetCommands >> $Output # pip install
-          fi
-        elif [ "$Chapter" = update ]; then
-          if $useDESTDIR; then # needs py3-installer installed to do a destdir install
-            GetInternalCommands pymodDestdirComms \
-             | sed -e 's/PYTHONPATH=src/PYTHONPATH=flit_core/' \
-             >> $Output
-          else # do a pip install upgrade
-            GetCommands \
-             | sed -e 's/python3 -m pip install/python3 -m pip install --upgrade/' \
-             >> $Output
-          fi
-        fi
-    ;;
     py3-installer)
         if [ "$Chapter" != update ]; then # chapter08
           if $useDESTDIR; then # needs py3-installer installed to do a destdir install
@@ -7952,24 +8035,27 @@ print $0
         fi
     ;;
     sed)
-        if $useDESTDIR; then
-          if [ "$SYSTEMD" = yes ]; then
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
             GetCommands \
-             | sed -e 's/--bindir=\/bin/--bindir=\/usr\/bin/' \
-                   -e 's/make -C doc install/make -C doc DESTDIR="$CUR_DIR" install/' \
+             | sed -e 's/DESTDIR=\$LFS/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}"/' \
              >> $Output
           else
-             GetCommands \
-              | sed -e 's/make -C doc install/make -C doc DESTDIR="$CUR_DIR" install/' \
-              >> $Output
+            GetCommands >> $Output
           fi
-        else # not using DESTDIR
+        else # chapter08 and update
           if [ "$SYSTEMD" = yes ]; then
+            if $useDESTDIR; then
+              GetCommands \
+               | sed -e 's#/usr/share/doc#${CUR_DIR}/usr/share/doc#g' \
+               >> $Output
+            else
+              GetCommands >> $Output
+            fi
+          else # sysv
             GetCommands \
-             | sed -e 's/--bindir=\/bin/--bindir=\/usr\/bin/' \
+             | sed -e '/make distclean/,/cp -av lib\/lib/d' \
              >> $Output
-          else
-             GetCommands >> $Output
           fi
         fi
     ;;
@@ -8038,6 +8124,7 @@ print $0
       fi
     ;;
     stripping)
+# *** NOTE *** check the current version of libstdc++.so.6.0.31
         echo "set +e" >> $Output
         if ! $as_root; then 
           GetCommands \
@@ -8045,9 +8132,12 @@ print $0
                  -e "/strip --strip-unneeded \/tmp\/\$BIN/a\    USER=\$(stat -c '%U' \/usr\/bin\/\$BIN)\n\    GROUP=\$(stat -c '%G' \/usr\/bin\/\$BIN)" \
                  -e 's/install -vm755 \/tmp\/$LIB \/usr\/lib/install -vm755 -o $USER -g $GROUP \/tmp\/$LIB \/usr\/lib\n\    if [ -e "$LIB.dbg" ]; then chown -v $USER:$GROUP $LIB.dbg; fi/' \
                  -e 's/install -vm755 \/tmp\/$BIN \/usr\/bin/install -vm755 -o $USER -g $GROUP \/tmp\/$BIN \/usr\/bin/' \
+                 -e 's/libstdc++.so.6.0.30/libstdc++.so.6.0.31/' \
            >> $Output
         else # as root so don't need to specify the USER and GROUP ids
-          GetCommands >> $Output
+          GetCommands \
+           | sed -e 's/libstdc++.so.6.0.30/libstdc++.so.6.0.31/' \
+           >> $Output
         fi
     ;;
     sysklogd)
@@ -8069,12 +8159,14 @@ print $0
                    -e 's/--strip-components=1 //' \
 		   -e 's/-C \/usr\/share\/man/-C "${CUR_DIR}"\/usr\/share\/man/' \
                    -e '/systemd-machine-id-setup/,/systemctl disable systemd-sysupdate/d' \
+                   -e 's/\(.*\)&&$/\1/' \
              >> $Output
           else
             GetCommands \
              | sed -e 's/--strip-components=1 //' \
                    -e '/tar -xf/a # mv the man pages to the correct dir\npushd /usr/share/man/systemd-man-pages-* > /dev/null\nfor page in 1 3 5 7 8; do\n  cd man${page}\n  mv -v *.* /usr/share/man/man${page}\n  cd ..\ndone\ncd ..\nrm -rf -v systemd-man-pages-*\npopd > /dev/null' \
                    -e '/systemd-machine-id-setup/,/systemctl disable systemd-sysupdate/d' \
+                   -e 's/\(.*\)&&$/\1/' \
              >> $Output
           fi
         else
@@ -8087,17 +8179,25 @@ print $0
          >> $Output
     ;;
     tar)
-        if $useDESTDIR; then
-          GetCommands \
-           | sed -e 's/bindir=\/bin/bindir=\/usr\/bin --libexecdir=\/usr\/lib\/tar/' \
-                 -e 's/make -C doc install-html/make -C doc DESTDIR=\"\$CUR_DIR\" install-html/' \
-           >> $Output
-        else
-          if [ "$SYSTEMD" = yes ]; then
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
             GetCommands \
-             | sed -e 's/bindir=\/bin/bindir=\/usr\/bin --libexecdir=\/usr\/lib\/tar/' \
+             | sed -e 's/DESTDIR=\$LFS/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}"/' \
              >> $Output
           else
+            GetCommands >> $Output
+          fi
+        else # chapter08 and update
+          if [ "$SYSTEMD" = yes ]; then
+            if $useDESTDIR; then
+              GetCommands \
+               | sed -e 's/prefix=\/usr/prefix=\/usr --libexecdir=\/usr\/lib\/tar/' \
+                     -e 's/make -C doc install-html/make -C doc DESTDIR=\"\$CUR_DIR\" install-html/' \
+               >> $Output
+            else
+              GetCommands >> $Output
+            fi
+          else # sysv
             GetCommands >> $Output
           fi
         fi
@@ -8178,12 +8278,22 @@ print $0
         fi
     ;;
     xz)
-        if [ "$SYSTEMD" = yes ]; then
-          GetCommands \
-           | sed -e 's/prefix=\/usr/prefix=\/usr --libdir=\/usr\/lib/' \
-           >> $Output
-        else
-          GetCommands >> $Output
+        if [ "$currentChapter" = chapter06 ]; then
+          if $useDESTDIR56; then # special case of using DESTDIR in chapter06
+            GetCommands \
+             | sed -e 's/DESTDIR=\$LFS/DESTDIR="\${LFS}\/build\/\${FuncName}\${LFS}"/' \
+             >> $Output
+          else
+            GetCommands >> $Output
+          fi
+        else # chapter08 and update
+          if [ "$SYSTEMD" = yes ]; then
+            GetCommands \
+             | sed -e 's/prefix=\/usr/prefix=\/usr --libexecdir=\/usr\/lib\/xz/' \
+             >> $Output
+          else # sysv
+            GetCommands >> $Output
+          fi
         fi
     ;;
     zlib)
@@ -8299,7 +8409,7 @@ for scrpt in $scriptToArrange; do
 # the install order for Chapter08 in book version sysv is different from version systemd
 # need to change the install order here
 #
-# TODO - this is a mess, but not sure there is an elegant solution to rearranging
+# TODO - this is a mess, is there is an elegant solution to rearranging the order?
 #
   while read eachFunc; do
     if [[ "$chapter" = chapter08 || "$WHICH_CHAPTER" = update ]]; then
@@ -8341,10 +8451,9 @@ mandb_" >> $Output
             if ! $as_root; then
               echo "$eachFunc
 updatePkgUser_
-py3flitcore_
 py3installer_" >> $Output
             fi
-          elif [[ "$eachFunc" = py3flitcore_ || "$eachFunc" = py3installer_ || "$eachFunc" = updatePkgUser_ ]]; then
+          elif [[ "$eachFunc" = py3installer_ || "$eachFunc" = updatePkgUser_ ]]; then
             : # don't write them here
           else
             echo $eachFunc >> $Output
@@ -8539,7 +8648,7 @@ for currentChapter in $reqChaps; do
       fi
     fi
   fi
-if $printit; then msg "listPackages is ${listPackages[@]}"; fi
+#if $printit; then msg "listPackages is ${listPackages[@]}"; fi
   for Name in $listPackages; do
 # ignore systemd and dbus if using sysv
     if [[ "$isSystemdBook" = false && ("$Name" == systemd || "$Name" == dbus) ]]; then # not installed in this book version
@@ -8555,12 +8664,11 @@ if $printit; then msg "listPackages is ${listPackages[@]}"; fi
         if [ "$PkgName" = Python ]; then # use python3 for Python-3*
           FuncName=python3
           PkgName=python3
-        elif [ "$PkgName" = flit ]; then
-          FuncName=py3flitcore
-          PkgName=py3-flit-core
         elif [ "$PkgName" = installer ]; then
           FuncName=py3installer
           PkgName=py3-installer
+        elif [ "$PkgName" = flit-core ]; then
+          SrcName=flit_core-
         fi
 # if installing binary tarfile(s) and chapter07, don't create the ch7asroot and ch7chroot files
         if [ "$currentChapter" = chapter07 ]; then 
@@ -8570,9 +8678,11 @@ if $printit; then msg "listPackages is ${listPackages[@]}"; fi
             case $FuncName in
                changingowner)
                  Output=${LFS}/${ch7asroot}
+                 msg "will write the script ${LFS}/${ch7asroot}"
                ;;
                chroot)
                  Output=${LFS}/${ch7chroot}
+                 msg "will write the script ${LFS}/${ch7chroot}"
 # if you log out or reboot you need to mount the kernelfs again
 # so include some conditionals to look after this
                  cat ${LFS}/${ch7asroot} \
@@ -8604,10 +8714,6 @@ if $printit; then msg "listPackages is ${listPackages[@]}"; fi
              ;;
              markupsafe)
                serchPkg="MarkupSafe"
-             ;;
-             py3-flit-core)
-               reviseSection="pythonmodules"
-               serchPkg="flit-core"
              ;;
              py3-installer)
                reviseSection="pythonmodules"
@@ -8755,12 +8861,8 @@ if $printit; then msg "listPackages is ${listPackages[@]}"; fi
               SrcName=procps-ng-
               Function
            ;;
-           py3-flit-core)
+           py3-installer) # add updatePkgUser
               if ! $as_root; then updatePkgUser "pythonmodules"; fi
-              Function
-           ;;
-           py3-installer) # add updatePkgUser if a single package
-              if $single_package && ! $as_root; then updatePkgUser "pythonmodules"; fi
               Function
            ;;
            cleanup)
@@ -9111,7 +9213,7 @@ if $single_package; then
     fi
   fi
 else # not single_package
-# check if installing from binary tarfile(s)
+# check if installing from existing binary tarfile(s)
   if [ "$DESTDIR" = yes ]; then useDESTDIR=true; fi
   if [ "$INSTALLDEST" = yes ]; then installDEST=true; fi
   if $installDEST && ! $useDESTDIR; then
@@ -9178,14 +9280,15 @@ else # not single_package
       fi
     fi
 # check DESTDIR
+    useDESTDIR56=false
     if $useDESTDIR; then # check which chapter specified
       if [[ "$WHICH_CHAPTER" = chapter05 || "$WHICH_CHAPTER" = chapter06 ]]; then
-        echo "You cannot use DESTDIR in chapters 5 and 6. This is because"
-        echo "DESTDIR=\$LFS in these chapters, so you cannot change it."
-        echo "You can use DESTDIR once you have entered chroot."
-        echo "Set WHICH_CHAPTER to chapter07, 08, 10 or update"
-        echo "Aborting"
-        exit 1
+        echo "DESTDIR is set to yes. This is used to check the files created"
+        echo "for a package in chapter05 and 06. The files are written to"
+        echo "\$LFS/build/\$FuncName. For example, for binutilspass1 the files"
+        echo "will be under the dir \$LFS/build/binutilspass1/\$LFS/tools"
+        echo "The files cannot be installed from this location, only inspected."
+        useDESTDIR56=true
       else
         if ! $single_package; then echo "Files for chapter $WHICH_CHAPTER will be created using DESTDIR"; fi
       fi
@@ -9194,18 +9297,18 @@ else # not single_package
         echo "No package binary tarfiles will be created"
       else # INSTALLDEST=no
         if $single_package; then
-         echo "installDEST is false so a binary tarfile will be created for"
-         echo "single package $SINGLE_PACKAGE"
-       else
-         if [ "$WHICH_CHAPTER" = chapter10 ]; then
-           echo "installDEST is false so a binary tarfile will be created for the kernel"
-         else
-           echo "installDEST is false so a binary tarfile will be created for each"
-           echo "package in $WHICH_CHAPTER"
-         fi
-       fi
-       createBinFile=true
-     fi
+          echo "installDEST is false so a binary tarfile will be created for"
+          echo "single package $SINGLE_PACKAGE"
+        elif [ ! $useDESTDIR56 ]; then
+          if [ "$WHICH_CHAPTER" = chapter10 ]; then
+            echo "installDEST is false so a binary tarfile will be created for the kernel"
+          else
+            echo "installDEST is false so a binary tarfile will be created for each"
+            echo "package in $WHICH_CHAPTER"
+          fi
+        fi
+        createBinFile=true
+      fi
     else # DESTDIR=no, so check INSTALLDEST
       if ! $installDEST; then
         echo "Files for $WHICH_CHAPTER will be compiled and installed"
@@ -9243,10 +9346,12 @@ if $printit; then msg "WHICH_CHAPTER is $WHICH_CHAPTER"; fi
 as_root=false
 if [ "$AS_ROOT" = yes ]; then # make sure lfs can write to BuildLog if not updating
   as_root=true
+  echo "*** will install packages as root ***"
   if [ "$WHICH_CHAPTER" != update ]; then chown lfs ${LFS}/${BuildLog}; fi
 else # root is owner of BuildLog when installing as a pkguser
   chown root:install ${LFS}/${BuildLog}
   chmod 664 ${LFS}/${BuildLog}
+  echo "*** will install packages as pkguser ***"
 fi
 wgetlist=$WGETLISTNAME # the name of the wget-list file
 #
@@ -9300,8 +9405,39 @@ case $version in
    ;;
 esac
 if [ ! -d $bookDir ]; then mkdir -pv $bookDir; fi
-if [ "$BOOK_ORIGIN" = git ]; then # download the book regardless of whether one exists
-  if [ -d "${bookDir}/${trunkDIR}" ]; then rm -rf -v ${bookDir}/${trunkDIR}; fi
+# BOOK_ORIGIN should either be git or local
+if [ "$BOOK_ORIGIN" != git -a "$BOOK_ORIGIN" != local ]; then # abort
+  echo "BOOK_ORIGIN should be git or local, but it is $BOOK_ORIGIN"
+  echo "Aborting"
+  exit 1
+fi
+if [ "$BOOK_ORIGIN" = git ]; then # check if there is already a book in the git dir
+  if [ -d "${bookDir}/${trunkDIR}/lfs/.git" ]; then # ask if want to use this book
+    msg "BOOK_ORIGIN is set to git but there is already a book in ${bookDir}/${trunkDIR}/lfs"
+    msg "Do you want to use this book? [Y/n]"
+    read Reply
+      case $Reply in
+         [nN]|[nN][Oo])
+            echo "Will delete this book and git clone the latest book"
+            rm -rf -v ${bookDir}/${trunkDIR}
+# download the book - check if git is installed on the host
+            if [ -e "/usr/bin/git" ]; then
+              git clone "${GIT_URL}/lfs.git" "${bookDir}/${trunkDIR}/lfs"
+              echo "need to make the requested version current"
+            else
+              echo "you will have to install git on the host"
+              echo "Abort"
+              exit 1
+            fi            
+         ;;
+         *) # default is use the downloaded book so set BOOK_ORIGIN=local
+           BOOK_ORIGIN=local
+           msg "BOOK_ORIGIN is now set to $BOOK_ORIGIN"
+           msg "Please set BOOK_ORIGIN=local in the config file"
+         ;;
+      esac
+  else # no local book found so git clone it from the LFS website
+    if [ -d "${bookDir}/${trunkDIR}" ]; then rm -rf -v ${bookDir}/${trunkDIR}; fi
 # download the book - check if git is installed on the host
     if [ -e "/usr/bin/git" ]; then
       git clone "${GIT_URL}/lfs.git" "${bookDir}/${trunkDIR}/lfs"
@@ -9311,7 +9447,9 @@ if [ "$BOOK_ORIGIN" = git ]; then # download the book regardless of whether one 
       echo "Abort"
       exit 1
     fi
-elif [ "$BOOK_ORIGIN" = local ]; then # check if the commands are in place
+  fi # test if a local LFS book exists
+fi # test if BOOK_ORIGIN=git
+if [ "$BOOK_ORIGIN" = local ]; then # check if the commands are in place
   whichChapter=$WHICH_CHAPTER
   if [ "$whichChapter" = update ]; then # need to test chapter08
     whichChapter="chapter08"
@@ -9319,8 +9457,9 @@ elif [ "$BOOK_ORIGIN" = local ]; then # check if the commands are in place
   if [ -d "${DumpedCommands}/${whichChapter}" ]; then # $lfscommands dir exists, check if empty
     if [ "$(ls -A ${DumpedCommands}/${whichChapter})" ]; then
       haveCommands=true
+      if $printit; then msg "haveCommands is $haveCommands"; fi
     else
-      echo "The directory ${DumpedCommands}/${whichChapter} is empty"
+      echo "The directory ${DumpedCommands}/${whichChapter} exists but is empty"
       echo "Did you download the book?"
       echo "Aborting"
       exit 1
@@ -9338,11 +9477,7 @@ elif [ "$BOOK_ORIGIN" = local ]; then # check if the commands are in place
     echo "Aborting"
     exit 1
   fi
-else
-  echo "BOOK_ORIGIN should be git or local, but it is $BOOK_ORIGIN"
-  echo "Aborting"
-  exit 1
-fi
+fi # BOOK_ORIGIN is either git or local
 # if got here then a book is in place and/or commands exist in lfs-commands on the target machine
 if ! $haveCommands; then # need to dump the commands from the book
 # need to make the requested version current
@@ -9500,23 +9635,7 @@ if [ "$currentChapter" = chapter06 ]; then
   else
     echo "Commands for wget are in ${DumpedCommands}/${currentChapter}"
   fi
-elif [ "$currentChapter" = chapter08 ]; then # add commands for py3-flit-core and py3-installer
-  if [ ! -e ${DumpedCommands}/${currentChapter}/151-flit ]; then
-    declare -a flitComs
-    flitComs[0]="python3 -m pip install flit-core"
-    addCommands "flit" "151" "chapter08" flitComs[@]
-    retVal=$?
-    if [ $retVal -eq $RETURN_PARAM ]; then
-      echo "didn't find ${DumpedCommands}/${currentChapter}"
-      echo "did you download the book?"
-      echo "*** failed to add the commands for py3-flit ***"
-      echo "Investigate why this failed"
-    elif [[ $retVal -eq 0 ]]; then
-      echo "Commands for py3-flit are in ${DumpedCommands}/${currentChapter}"
-    fi
-  else
-    echo "Commands for py3-flit are in ${DumpedCommands}/${currentChapter}"
-  fi
+elif [ "$currentChapter" = chapter08 ]; then # add commands for py3-installer
   if [ ! -e ${DumpedCommands}/${currentChapter}/152-installer ]; then
     declare -a installerComs
     installerComs[0]="python3 -m pip install installer"
@@ -10009,29 +10128,19 @@ else
   if [ -d $SourceDir -a "$(ls -A $SourceDir)" ]; then # source dir exists and has files in it
     if $printit; then msg "source dir $SourceDir exists and contains files"; fi
 # get src versions for all the following plus any patch file names
-    listPkgs=(bzip2 coreutils dbus elfutils flit gcc glibc gmp installer kbd kernel mpc mpfr ncurses perl python3 readline shadow systemd tcl util-linux xz zstd)
+    listPkgs=(bzip2 coreutils dbus elfutils flit_core gcc glibc gmp grub installer kbd kernel mpc mpfr ncurses perl python3 readline shadow systemd tcl util-linux xz zstd)
     if [ ! -f $WgetList ]; then
       echo "The required wget-list file does not exist"
       echo "You need the file $WgetList in order to continue"
       echo "Aborting"
       exit 1
     fi
-# add the urls for flit and installer if not present
-    foundFlit=""
+# add the urls for installer if not present
     foundInstaller=""
-    foundFlit=$(grep -rn "flit" $WgetList)
     foundInstaller=$(grep -rn "installer" $WgetList)
     if [[ "$Chapter" = chapter08 || "$Chapter" = update ]]; then
-      if [ -z "$foundFlit" ]; then
-        echo 'https://github.com/pypa/flit/archive/refs/tags/3.7.1.tar.gz' >> $WgetList
-        if $printit; then msg "added the URL for flit to the wget-list file"; fi
-      else
-        if $printit; then msg "The URL for flit is in $WgetList"; fi
-      fi
-    fi
-    if [[ "$Chapter" = chapter08 || "$Chapter" = update ]]; then
       if [ -z "$foundInstaller" ]; then
-        echo 'https://github.com/pypa/installer/archive/refs/tags/0.5.1.tar.gz' >> $WgetList
+        echo 'https://github.com/pypa/installer/archive/refs/tags/0.7.0.tar.gz' >> $WgetList
         if $printit; then msg "added the URL for installer to the wget-list file"; fi
       else
         if $printit; then msg "The URL for installer is in $WgetList"; fi
@@ -10280,20 +10389,59 @@ else
              fi
            fi
          ;;
-         flit|py3-flit-core)
+         flit_core)
            getflitVers=false
            if $single_package; then
-             if [ "$SINGLE_PACKAGE" = flit -o "$SINGLE_PACKAGE" = py3-flit-core ]; then getflitVers=true; fi
+             if [ "$SINGLE_PACKAGE" = "flit-core" ]; then getflitVers=true; fi
            elif [ "$Chapter" = chapter08 -o "$Chapter" = update ]; then
              getflitVers=true
            fi
            if $getflitVers; then
-             if [ "$SOURCES" = atinstall ]; then # use the wget-list file
-               flitUrl=$(grep -rn "flit" $WgetList)
-               flitFile=${flitUrl##*/}
-               trimto=".tar"
-               flitVers="${flitFile%${trimto}*}"
-               echo "flit version is $flitVers"
+             searchStr="*flit_core-*"
+             flitcorevers=""
+             if [ "$SOURCES" = atinstall ]; then # use the md5sums file
+               flitcorevers=$(getMd5sumInfo "pkgVers" srcFileName $searchStr)
+               if [ ! -z "$flitcorevers" ]; then
+                 echo "flit_core version is $flitcorevers"
+               else
+                 echo "return value for flit_core is $?"
+                 echo "Investigate why this didn't work"
+                 exit 1
+               fi
+             elif [ "$SYSTEMD" = yes ]; then # use the src files in $SourceDir
+               rtrvers=""
+               for srcFile in ${srcFileName[@]}; do
+                 case $srcFile in
+                    $searchStr)
+                      rtrvers=""
+                      flitcorevers=""
+#msg "*** CALLING GetPkgVersion, srcFile is $srcFile ***"
+                      GetPkgVersion "" $srcFile ".tar"
+                      if [ "$?" = 0 ]; then
+                        flitcorevers=$rtrvers
+                        if [ ! -z "$flitcorevers" ]; then echo "flit_core version is $flitcorevers"; fi
+                      else
+                        echo "return value for flit_core is $?"
+                        echo "Investigate why this didn't work"
+                      fi
+                      break
+                    ;;
+                 esac
+               done
+               flitcorevers=""
+#msg "*** CALLING GetPkgVersion, srcFile is flit_core ***"
+               GetPkgVersion $SourceDir flit_core- ".tar"
+               retval=$?
+               if [ $retval -eq $RETURN_PARAM ]; then
+                 echo "*** Directory $SourceDir doesn't exist ***"
+               elif [ $retval -eq $RETURN_FNF ]; then
+                 echo "*** No file found containing the name flit_core- and tar found ***"
+               elif [ $retval -eq $RETURN_MTOV ]; then
+                 echo "*** More than one version of flit_core- found in $SourceDir ***"
+               elif [ $retval -eq 0 ]; then
+                 flitcorevers=$rtrvers
+                 if [ ! -z "$flitcorevers" ]; then echo "flit_core version is $flitcorevers"; fi
+               fi
              fi
            fi
          ;;
@@ -10432,6 +10580,57 @@ else
                elif [ $retval -eq 0 ]; then
                  gmpvers=$rtrvers
                  if [ ! -z "$gmpvers" ]; then echo "gmp version is $gmpvers"; fi
+               fi
+             fi
+           fi
+         ;;
+         grub)
+           getgrubPatch=false
+           if $single_package; then
+             if [ "$SINGLE_PACKAGE" = grub ]; then getgrubPatch=true; fi
+           elif [ "$Chapter" != chapter07 -a "$Chapter" != chapter10 ]; then
+             getgrubPatch=true
+           fi
+           if $getgrubPatch; then
+             patchSearch='*grub*.patch*'
+             if [ "$SOURCES" = atinstall ]; then # use md5sums
+               grubPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+             else # use the src dir
+               grubPatch=$(getPatchName "" $patchSearch $SourceDir)
+               grubPatch=${grubPatch##*/} # just the filename
+             fi
+             ret_val=$?
+             if [ $ret_val -eq $RETURN_PARAM ]; then
+               echo "failed to get grub patch name"
+               echo "*** Investigate ***"
+             else
+               echo "grub patch is $grubPatch"
+             fi
+             searchStr="*grub-*"
+             bzip2vers=""
+             if [ "$SOURCES" = atinstall ]; then # use the md5sums file
+               grubvers=$(getMd5sumInfo "pkgVers" srcFileName $searchStr)
+               if [ ! -z "$grubvers" ]; then
+                 echo "grub version is $grubvers"
+               else
+                 echo "return value for grub is $?"
+                 echo "Investigate why this didn't work"
+                 exit 1
+               fi
+             else
+               rtrvers=""
+#msg "*** CALLING GetPkgVersion, srcFile is grub ***"
+               GetPkgVersion $SourceDir grub- ".tar"
+               retval=$?
+               if [ $retval -eq $RETURN_PARAM ]; then
+                 echo "*** Directory $SourceDir doesn't exist ***"
+               elif [ $retval -eq $RETURN_FNF ]; then
+                 echo "*** No file found containing the name grub- and tar found ***"
+               elif [ $retval -eq $RETURN_MTOV ]; then
+                 echo "*** More than one version of grub- found in $SourceDir ***"
+               elif [ $retval -eq 0 ]; then
+                 grubvers=$rtrvers
+                 if [ ! -z "$grubvers" ]; then echo "grub version is $grubvers"; fi
                fi
              fi
            fi
@@ -10850,7 +11049,9 @@ else
                echo "failed to get shadow patch name"
                echo "*** Investigate ***"
              else
-               echo "shadow patch is $shadowPatch"
+               if [ ! -z "$shadowPatch" ]; then
+                 echo "shadow patch is $shadowPatch"
+               fi
              fi
            fi
          ;;
@@ -10874,7 +11075,9 @@ else
                echo "failed to get systemd patch name"
                echo "*** Investigate ***"
              else
-               echo "systemd patch is $systemdPatch"
+               if [ ! -z "$systemdPatch" ]; then
+                 echo "systemd patch is $systemdPatch"
+               fi
              fi
              if [ "$SOURCES" = atinstall ]; then # use the md5sums file
                for srcFile in ${srcFileName[@]}; do
@@ -11055,7 +11258,9 @@ else
                echo "failed to get zstd patch name"
                echo "*** Investigate ***"
              else
-               echo "zstd patch is $zstdPatch"
+               if [ ! -z "$zstdPatch" ]; then
+                 echo "zstd patch is $zstdPatch"
+               fi
              fi
            fi
          ;;

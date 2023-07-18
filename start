@@ -1,5 +1,26 @@
 #!/bin/bash
 #
+# NOTE - disk sdb no longer exists - left the code in place in case it's resurrected
+# this disk is now sda and sda1 is used as swap
+# Assuming disk sdb exists then -
+# There are three disks here: disk sdb has 10 partitions with 3 operating systems - 
+# change sdb to suit your needs
+# M.2 ssd nvme0n1 has 9 available partitions
+# 1 to 3 have Arch OS loadeded. nvme0n1p1 is an EFI system partition and mounted as /boot
+# NOTE all the kernels for the entire system are on this partition.
+# 4 to 6 are for an LFS OS (Xfce)
+# 7 to 9 are for another LFS OS of your choosing
+# M.2 ssd nvme1n1 has 3 available partitions. 1 to 5 are reserved for Windows 11
+# 6 to 8 are for an LFS OS.
+#
+# sdb (1TB) used to contain these partitions
+# sdb1 - EFI system partition
+# sdb2 - BIOS boot partition
+# sdb3 - 5    LFS xfce 
+# sdb6 - 9    LFS kf5 plasma
+# sdb10 - 12  Arch KF5 plasma
+# sdb13       swap
+#
 as_root=true
 if [ $UID -ne 0 ]; then
   as_root=false
@@ -13,24 +34,10 @@ nvme1="nvme1n1"
 label="sdb"
 # Note - the sdb disk has been removed (03/2022) Its now used as a swap partition
 # the code for it has been left in place. sdb may reappear in the future
-# but it is not maintained here currently
+# but it is not maintained at the moment
 diskLabel=$label
 disk4=""
-# the disks contain the following partitions
-# nvme0n1p3 - p5 Ubuntu
-# nvme0n1p6 - p8 Arch Linux
-# nvme0n1p9 - p12 LFS (Gnome)
-# nvme1n1p6 - p8 LFS (usually xfce)
-# nvme1n1p9 - p12 LFS (xfce or other)
-# sdb (1TB) used to contain these partitions
-# sdb1 - EFI system partition
-# sdb2 - BIOS boot partition
-# sdb3 - 5    LFS xfce 
-# sdb6 - 9    LFS kf5 plasma
-# sdb10 - 12  Arch KF5 plasma
-# sdb13       swap
-#
-# but now sda1 is used as a swap partition
+# sda1 is used as a swap partition (50 MB)
 #
 # which disk is mounted
 isNvme0=false
@@ -154,52 +161,59 @@ if [ "$LFS" = /mnt/lfs ]; then
     echo "Aborting"
     exit 1
   fi
-  if $isNvme0; then # offer to create a file system on partitions on label, nvme0 or nvme1
+  if $isNvme0; then # Offer to mount partitions on label, nvme0 or nvme1
     suite1="${label}3, 4 and 5 (LFS)"
     suite2="${label}6, 7, 8 and 9 (LFS)"
     suite3="${label}10, 11 and 12 (Arch KF5 plasma)"
-    suite4="${nvme1}p6, p7 and p8 (LFS xfce)"
-    suite5="${nvme1}p9, p10, p11 and p12 (LFS xfce)"
     case $rootSystem in
-       *p7) # Arch is mounted
-         suite6="${nvme0}p3, p4 and p5 (Ubuntu)"
-         one="p3"
-         two="p4"
-         three="p5"
-         suite7="${nvme0}p9, p10, p11 and p12 (LFS Gnome)"
-         four="p9"
-         five="p10"
-         six="p11"
-         seven="p12"
+       *p2) # Arch is mounted
+         suite4="${nvme0}p4, p5 and p6 (LFS Xfce)"
+         one="p4"
+         two="p5"
+         three="p6"
+         suite5="${nvme0}p7, p8, p9 (LFS)"
+         four="p7"
+         five="p8"
+         six="p9"
+         suite6="${nvme1}p6, p7 and p8 (LFS)"
+         seven="p6"
+         eight="p7"
+         nine="p8"
        ;;
-       *p4) # Ububtu is mounted
-         suite6="${nvme0}p6, p7 and p8 (Arch)"
-         one="p6"
-         two="p7"
-         three="p8"
-         suite7="${nvme0}p9, p10, p11 and p12 (LFS Gnome)"
-         four="p9"
-         five="p10"
-         six="p11"
-         seven="p12"
+       *p4) # LFS Xfce mounted
+         suite4="${nvme0}p2 and p3 (Arch)"
+         one="p2"
+         two="p3"
+         three=""
+         suite5="${nvme0}p7, p8, p9 (LFS)"
+         four="p7"
+         five="p8"
+         six="p9"
+         suite6="${nvme1}p6, p7 and p8 (LFS)"
+         seven="p6"
+         eight="p7"
+         nine="p8"
        ;;
-       *p10) # LFS is mounted
-         suite6="${nvme0}p3, p4 and p5 (Ubuntu)"
-         one="p3"
-         two="p4"
-         three="p5"
-         suite7="${nvme0}p6, p7 and p8 (Arch)"
-         four="p6"
-         five="p7"
-         six="p8"
-         seven=""
+       *p7) # LFS mounted
+         suite4="${nvme0}p2 and p3 (Arch)"
+         one="p2"
+         two="p3"
+         three=""
+         suite5="${nvme0}p4, p5 and p6 (LFS Xfce)"
+         four="p4"
+         five="p5"
+         six="p6"
+         suite6="${nvme1}p6, p7 and p8 (LFS)"
+         seven="p6"
+         eight="p7"
+         nine="p8"
        ;;
-    esac
+    esac	       
     echo "will chroot into one of the following -"
     echo "Choose one:"
     echo " "
     PS3="> "
-    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6" "$suite7")
+    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6")
     select opt in "${options[@]}" "Quit"; do
         case "$REPLY" in
            1)
@@ -228,81 +242,56 @@ if [ "$LFS" = /mnt/lfs ]; then
               break
            ;;
            4)
-              echo "Will create a file system on partitions $suite4"
-              disk1=p6
-              disk2=p7
-              disk3=p8
-              diskLabel=$nvme1
-              break
-           ;;
-           5)
-              echo "Will create a file system on partitions $suite5"
-              disk1=p9
-              disk2=p10
-              disk3=p11
-              disk4=p12
-              diskLabel=$nvme1
-              break
-           ;;
-           6)
-              echo "Will create a file system on partitions $suite6"
+              echo "Will mount partitions on  $suite4"
               disk1=$one
               disk2=$two
               disk3=$three
               diskLabel=$nvme0
               break
            ;;
-           7)
-              echo "Will create a file system on partitions $suite7"
+           5)
+              echo "Will mount partitions on $suite5"
               disk1=$four
               disk2=$five
               disk3=$six
-              disk4=$seven
               diskLabel=$nvme0
+              break
+           ;;
+           6)
+              echo "Will mount partitions on $suite6"
+              disk1=$seven
+              disk2=$eight
+              disk3=$nine
+              disklabel=$nvme0
+              if [ "$disk1" = p6 ]; then diskLabel=$nvme1; fi
               break
            ;;
            $((${#options[@]}+1)))
               echo "Okay, will exit"
               exit 1
            ;;
-           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6, 7 or 8"
+           *) echo "Invalid option. Type 1, 2, 3, 4, 5, 6 or 7"
               :
            ;;
         esac
     done
 #
-  elif $isNvme1; then # offer to create a file system on partitions on label, nvme0 or nvme1
+  elif $isNvme1; then # if this disk is the host the partitions are p6, p7 and p8
     suite1="${label}3, 4 and 5 (LFS)"
     suite2="${label}6, 7, 8 and 9 (LFS)"
     suite3="${label}10, 11 and 12 (Arch KF5 plasma)"
-    suite4="${nvme0}p3, p4 and p5 (Ubuntu)"
-    suite5="${nvme0}p6, p7 and p8 (Arch)"
-    suite6="${nvme0}p9, p10, p11 and p12 (LFS)"
-    case $rootSystem in
-       *p7) # Arch is mounted
-         suite7="${nvme1}p9, p10, p11, p12 (LFS)"
-         one="p9"
-         two="p10"
-         three="p11"
-         four="p12"
-       ;;
-       *p10) # LFS is mounted
-         suite7="${nvme1}p6, p7, p8 (LFS xfce)"
-         one="p6"
-         two="p7"
-         three="p8"
-         four=""
-       ;;
-    esac
+    suite4="${nvme0}p2 and p3 (Arch)"
+    suite5="${nvme0}p4, p5 and p6 (LFS Xfce)"
+    suite6="${nvme0}p7, p8, and p9 (LFS)"
     echo "will chroot into one of the following -"
     echo "Choose one:"
     echo " "
     PS3="> "
-    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6" "$suite7")
+    options=("$suite1" "$suite2" "$suite3" "$suite4" "$suite5" "$suite6")
     select opt in "${options[@]}" "Quit"; do
         case "$REPLY" in
            1)
-              echo "If sdb existed, would create a file system on partitions $suite1"
+              echo "If sdb existed, would mount partitions on $suite1"
               disk1=3
               disk2=4
               disk3=5
@@ -310,7 +299,7 @@ if [ "$LFS" = /mnt/lfs ]; then
               break
            ;;
            2)
-              echo "If sdb existed, would create a file system on partitions $suite2"
+              echo "If sdb existed, would mount partitions on $suite2"
               disk1=6
               disk2=7
               disk3=8
@@ -319,7 +308,7 @@ if [ "$LFS" = /mnt/lfs ]; then
               break
            ;;
            3)
-              echo "If sdb existed, would create a file system on partitions $suite3"
+              echo "If sdb existed, would mount partitions on $suite3"
               disk1=10
               disk2=11
               disk3=12
@@ -327,37 +316,27 @@ if [ "$LFS" = /mnt/lfs ]; then
               break
            ;;
            4)
-              echo "Will create a file system on partitions $suite4"
-              disk1=p3
-              disk2=p4
-              disk3=p5
+              echo "Will mount partitions on $suite4"
+              disk1=p2
+              disk2=p3
+              disk3=""
               diskLabel=$nvme0
               break
            ;;
            5)
-              echo "Will create a file system on partitions $suite5"
-              disk1=p6
-              disk2=p7
-              disk3=p8
+              echo "Will mount partitions on $suite5"
+              disk1=p4
+              disk2=p5
+              disk3=p6
               diskLabel=$nvme0
               break
            ;;
            6)
-              echo "Will create a file system on partitions $suite6"
-              disk1=p9
-              disk2=p10
-              disk3=p11
-              disk4=p12
+              echo "Will mount partitions on $suite6"
+              disk1=p7
+              disk2=p8
+              disk3=p9
               diskLabel=$nvme0
-              break
-           ;;
-           7)
-              echo "Will create a file system on partitions $suite7"
-              disk1=$one
-              disk2=$two
-              disk3=$three
-              disk4=$four
-              diskLabel=$nvme1
               break
            ;;
            $((${#options[@]}+1)))
@@ -497,43 +476,60 @@ if [ "$LFS" = /mnt/lfs ]; then
     if [ ! -z "$disk4" ]; then
       echo "/dev/${diskLabel}${disk4}"
     fi
+# if root, would mount the ESP partition on LFS/boot
+    echo "would also mount the ESP partition"
+    echo "/dev/nvme0n1p1"
     echo "Aborting"
-    exit 1
-  else
+#    exit 1
+  else #as root
     echo "Running as root, will mount these partitions:"
-# last check to see that these are not already mounted
-    if isDevMounted "/dev/${diskLabel}${disk1}"; then
-      echo "device is already mounted"
-      echo "Abort"
-      exit 1
-    fi
     echo "/dev/${diskLabel}${disk1}"
-    echo "/dev/${diskLabel}${disk2}"
+    echo "/dev/${diskLabel}${disk2}" 
     echo "/dev/${diskLabel}${disk3}"
     if [ ! -z "$disk4" ]; then
       echo "/dev/${diskLabel}${disk4}"
     fi
+# mount the ESP partition on $LFS/boot
+    echo "will also mount the ESP partition"
+    echo "/dev/nvme0n1p1 to $LFS/boot"    
 #
-#  exit 1
-    if ! $runit; then
-      echo "Partitions on sdb chosen. Will do nothing"
-    else
-      mount -v -t ext4 /dev/${diskLabel}${disk2} $LFS
+# exit 1
+  fi # test as root
+  if ! $runit; then
+    echo "Partitions on sdb chosen. Will do nothing"
+  else
+    if ! $as_root; then
+      echo "disk1 is $disk1"
+    else # if disk1 is p2 then requested Arch. mount p2 as $LFS and p3 as $LFS/home
+      case $disk1 in
+         *p2) # Arch p2 and p3
+           mount -v -t ext4 /dev/${diskLabel}${disk1} $LFS
+           mount -v -t ext4 /dev/${diskLabel}${disk2} $LFS/home
+           useutmp=997 # Arch
+         ;;
+         *) # mount LFS partitions
+           mount -v -t ext4 /dev/${diskLabel}${disk1} $LFS
+           mount -v -t ext4 /dev/${diskLabel}${disk2} $LFS/home
+           mount -v -t ext4 /dev/${diskLabel}${disk3} $LFS/opt
+           useutmp=13 # LFS
+# disk4 not currently used. Was used with disk sdb
+#           if [ ! -z "$disk4" ]; then
+#             if [ ! -d $LFS/opt ]; then mkdir -pv $LFS/opt; fi
+#             mount -v -t ext4 /dev/${diskLabel}${disk4} $LFS/opt
+#           fi
+         ;;
+      esac
+# mount $LFS/boot on p1
       if [ ! -d $LFS/boot ]; then mkdir -pv $LFS/boot; fi
-      mount -v -t ext4 /dev/${diskLabel}${disk1} $LFS/boot
-      if [ ! -d $LFS/home ]; then mkdir -pv $LFS/home; fi
-      mount -v -t ext4 /dev/${diskLabel}${disk3} $LFS/home
-      if [ ! -z "$disk4" ]; then
-        if [ ! -d $LFS/opt ]; then mkdir -pv $LFS/opt; fi
-        mount -v -t ext4 /dev/${diskLabel}${disk4} $LFS/opt
-      fi
+      mount -v -t vfat /dev/nvme0n1p1 $LFS/boot
+# see if swap is available
       if [ -e /dev/sda1 ]; then
         echo "swap is partition /dev/sda1"
         ${LFS}/usr/bin/swapon -v /dev/sda1
       fi
 #
-      mount -v --bind /dev $LFS/dev
 # mount virtual kernel file systems
+      mount -v --bind /dev $LFS/dev
       mount -v --bind /dev/pts $LFS/dev/pts
       mount -vt proc proc $LFS/proc
       mount -vt sysfs sysfs $LFS/sys
@@ -542,46 +538,45 @@ if [ "$LFS" = /mnt/lfs ]; then
         mkdir -pv $LFS/$(readlink $LFS/dev/shm)
       fi
       chmod 1777 $LFS/dev/shm
-# utmp numbering problem - 
-# utmp on Arch is group 997
-# utmp on LFS is group 13
-# utmp on Ubuntu is 43
-# so use the correct value below
-      useutmp=13 # LFS
+    fi # test as root
+    echo "using useutmp $useutmp"
+    if $as_root; then
       touch $LFS/var/log/{btmp,lastlog,wtmp}
-      if [[ "${diskLabel}${disk2}" = nvme0n1p7 || "${diskLabel}${disk2}" = nvme1n1p7 ]]; then # Arch
-        useutmp=997
-      elif [ "${diskLabel}${disk2}" = nvme0n1p4 ]; then # Ububtu
-        useutmp=43
-      fi
       chgrp -v $useutmp $LFS/var/log/{lastlog,btmp,wtmp}
       chmod -v 664  $LFS/var/log/{lastlog,wtmp}
       chmod -v 660  $LFS/var/log/btmp
+    fi
 # if using Package User install, set some install files if using LFS partitions
-      ispkguser=true
-      echo "Installing as pkguser? [Y/n]"
-      read reply
-        case $reply in
-           [nN]|[nN][Oo])
-              ispkguser=false # installing as root
+    ispkguser=true
+    echo "Installing as pkguser? [Y/n]"
+    read reply
+      case $reply in
+         [nN]|[nN][Oo])
+            ispkguser=false # installing as root
+         ;;
+      esac
+    if $as_root; then
+      if $ispkguser; then # check if Arch root partition
+        case $disk1 in
+           *p2) # Arch p2 and p3
+             echo "Requested the Arch partitions - no changes required"
+           ;;
+           *) # LFS so make some changes
+             chmod 1775 $LFS/var
+             chmod 1775 $LFS/var/{cache,lib,log}
+             if [ -d $LFS/srv ]; then
+               chgrp 9999 $LFS/srv # install group
+               chmod 1775 $LFS/srv
+             fi
+             if [ -d $LFS/var/spool ]; then
+               chgrp 9999 $LFS/var/spool # install group
+               chmod 1775 $LFS/var/spool
+             fi
+             mkdir -pv $LFS/run/lock
+             chmod 1777 $LFS/run/lock
            ;;
         esac
-      if $ispkguser; then # check if Ubuntu or Arch partitions
-        if [[ "${diskLabel}${disk2}" != nvme0n1p4 && "${diskLabel}${disk2}" != nvme0n1p7 ]]; then # LFS partition
-          chmod 1775 $LFS/var
-          chmod 1775 $LFS/var/{cache,lib,log}
-          if [ -d $LFS/srv ]; then
-            chgrp 9999 $LFS/srv # install group
-            chmod 1775 $LFS/srv
-          fi
-          if [ -d $LFS/var/spool ]; then
-            chgrp 9999 $LFS/var/spool # install group
-            chmod 1775 $LFS/var/spool
-          fi
-        fi
-        mkdir -pv $LFS/run/lock
-        chmod 1777 $LFS/run/lock
-      fi
+      fi # test is pkguser
 # enter chroot
       if [ -e /usr/bin/env ]; then
         chroot "$LFS" /usr/bin/env -i        \
@@ -592,8 +587,8 @@ if [ "$LFS" = /mnt/lfs ]; then
       else
         echo "Can't enter chroot. No /usr/bin/env present"
       fi
-    fi # test runit
-  fi # test as_root
+    fi # test as root
+  fi # test runit
 else
   echo "Don't recognise variable LFS as $LFS"
   echo "Do export LFS=/mnt/lfs and try again"

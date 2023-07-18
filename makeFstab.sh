@@ -6,9 +6,9 @@
 # 3,4,5 has one OS
 # 6,7,8 and 9 has another OS
 # and 10,11 and 12 has another OS
-# M.2 ssd nvme0n1 is an nvme ssd with 12 partitions: 1 is an EFI system partition and 2 is a BIOS boot partition
-# 3,4 and 5 has Ubuntu loaded, 6,7,and 8 is Arch (gnome) and 9,10,11 and 12 is for an LFS (Gnome) OS.
-# M.2 ssd nvme1n1 has 7 available partitions. (p1 - p5 is for Windows 11 and are not changed). p6 - p8 is for Arch (xfce, or whatever is current). P9 - p12 is for an LFS OS, usually to match whatever is loaded on p6 - p8.
+# M.2 ssd nvme0n1 is an nvme ssd with 11 partitions: 1 is an EFI system partition
+# 2 and 3 are the Arch Linux OS, 4 - 7 is LFS (Xfce) and 8 - 1 is for LFS (Gnome) OS.
+# M.2 ssd nvme1n1 has 7 available partitions. (p1 - p5 is for Windows 11. p6 - p8 is for Arch (xfce, or whatever is current). P9 - p12 is for an LFS OS, usually to match whatever is loaded on p6 - p8.
 
 # create the fstab file
 nvme0="nvme0n1p"
@@ -175,7 +175,11 @@ thedisc="%-16s\n"
 if [ "$nvme0n1" = true -o "$nvme1n1" = true ]; then
   for KK in "${!mntPointDisk[@]}"; do
     printf "$thedisc" "# /dev/$KK" >> /etc/fstab
-    printf "$fstabformat" "UUID=${disk_uuid[count++]}" "${mntPointDisk[$KK]}" "ext4" "rw,relatime" "$dumporder" "$fsckVal" >> /etc/fstab
+    if [ "${mntPointDisk[$KK]}" = "/boot" ]; then # the ESP
+      printf "$fstabformat" "UUID=${disk_uuid[count++]}" "${mntPointDisk[$KK]}" "vfat" "rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro" "$dumporder" "$fsckVal" >> /etc/fstab
+    else
+      printf "$fstabformat" "UUID=${disk_uuid[count++]}" "${mntPointDisk[$KK]}" "ext4" "rw,relatime" "$dumporder" "$fsckVal" >> /etc/fstab
+    fi
     fsckVal=2
   done
 else # using disk sdb
