@@ -23,6 +23,7 @@ rootIsNvme0n1=false
 rootIsNvme1n1=false
 rootIsSDB=false
 diskMounted=""
+newLFS=""
 declare -a disk
 #
 checkRootPart () {
@@ -55,153 +56,114 @@ if [ "$LFS" = /mnt/lfs ]; then
   nvme1Parts=( $(lsblk --noheadings --raw -o NAME,MOUNTPOINT | awk '{if ($1~/nvme1n1p/ && $2~/[/]/) {print $1, $2}}') )
   numnvme1=${#nvme1Parts[@]}
 #
-  labelParts=( $(lsblk --noheadings --raw -o NAME,MOUNTPOINT | awk '{if ($1~/sdb/ && $2~/[/]/) {print $1, $2}}') )
-  numsdb=${#labelParts[@]}
-#
-  if [ $numnvme0 -gt 0 ]; then
-    echo "disk nvme0n1 is mounted"
-    echo "these partitions are mounted"
-    diskMounted=${nvme0Parts[@]}
-    echo "${diskMounted[@]}"
-    nvme0n1=true
-  else
-    echo "disk nvme0n1 is not mounted"
-  fi
-  if [ $numnvme1 -gt 0 ]; then
-    echo "disk nvme1n1 is mounted"
-    echo "these partitions are mounted"
-    if [ ! -z "$diskMounted" ]; then
-      echo "diskMounted already filled - more than one disk mounted"
-      echo "Investigate - Aborting"
-      exit 1
-    else
-      diskMounted=${nvme1Parts[@]}
-      echo "${diskMounted[@]}"
-      nvme1n1=true
-    fi
-  else
-    echo "disk nvme1n1 is not mounted"
-  fi
-  if [ $numsdb -gt 0 ]; then
-    echo "disk sdb is mounted"
-    echo "these partitions are mounted"
-    if [ ! -z "$diskMounted" ]; then
-      echo "diskMounted already filled - more than one disk mounted"
-      echo "Investigate - Aborting"
-      exit 1
-    else
-      diskMounted=${labelParts[@]}
-      echo "${diskMounted[@]}"
-      sdb=true
-    fi
-  else
-    echo "disk sdb is not mounted"
-  fi
-#
+if [ $numnvme0 -eq 0 ]; then
+  echo "nvme0Parts is empty"
+elif [ $numnvme0 -eq 2 ]; then # the /boot partition only
+  echo "nvme0Parts is the boot partition ${nvme0Parts[@]}"
+elif [ $numnvme0 -eq 8 ]; then # the new LFS + /boot disk
+  echo "disk nvme0n1 is the new LFS"
+  echo "these partitions are mounted"
+  echo "${nvme0Parts[@]}"
+  newLFS=${nvme0Parts[@]}
+  nvme0n1=true
+fi
+if [ $numnvme1 -eq 0 ]; then
+  echo "nvme1Parts is empty"
+elif [ $numnvme1 -eq 6 ]; then
+  echo "disk nvme1n1 is the new LFS"
+  echo "these partitions are mounted"
+  echo "${nvme1Parts[@]}"
+  newLFS=${nvme1Parts[@]}
+  nvme1n1=true
+fi
+# identify the root partition
+rootSystem=$(findmnt -n -o SOURCE /)
+echo "root partition is $rootSystem"
+rootNoDev=${rootSystem/\/dev\//}
+echo "rootNoDev is $rootNoDev"
 # declare associative array where the keys are the disk-names and the values are the mount-points
 storDisk=""
 declare -A mntPointDisk
-for part in ${diskMounted[@]}; do
-  if [ -z "$storDisk" ]; then # store the disk name
+# # declare associative array where the keys are the disk-names and the values are the UUIDs
+declare -A mntPointUUID
+for part in ${newLFS[@]}; do
+  if [ "$part" = nvme0n1p1 -o "$part" = /boot ]; then # ignore the /boot partitiion for the moment
+    :
+  elif [ -z "$storDisk" ]; then
     storDisk=$part
   else # key stored so fill array
     mntPointDisk[$storDisk]=$part
     storDisk=""
   fi
 done
-echo "disk name and mount-point"
+mntPointDisk["sda1"]=none # swap disk
+echo "#
+disk name     mount-point"
 for KK in "${!mntPointDisk[@]}"; do
-  echo "$KK --- ${mntPointDisk[$KK]}"
-done
-# get the root partition to identify the partition to use
-  rootSystem=$(findmnt -n -o SOURCE /)
-  echo "root partition is $rootSystem"
-  rootNoDev=${rootSystem/\/dev\//}
-#  echo "rootNoDev is $rootNoDev"
-#
-# find the disk on which the root partition is mounted
-  checkRootPart diskMounted[@] $rootNoDev
-  if [ "$?" = 0 ]; then
-    echo "root partition found on the mounted disk"
-    if $nvme0n1; then
-      echo "${nvme0/p/}"
-      rootIsNvme0n1=true
-    fi
-    if $nvme1n1; then
-      echo "${nvme1/p/}"
-      rootIsNvme1n1=true
-    fi
-    if $sdb; then
-      echo "$label"
-      rootIsSDB=true
-    fi
+  if [ "$KK" = sda1 ]; then
+    echo "$KK      --- ${mntPointDisk[$KK]}"
   else
-    echo "return from checkRootPart is 1. Root partition not found"
-    echo "Aborting"
-    exit 1
+    echo "$KK --- ${mntPointDisk[$KK]}"
   fi
-#
-echo "** Check that only one of the following is true **"
-echo "rootIsNvme0n1 is $rootIsNvme0n1"
-echo "rootIsNvme1n1 is $rootIsNvme1n1"
-echo "rootIsSDB is $rootIsSDB"
-#
-# NOTE - haven't tested all the sdb disk cases
-#
-# can turn the partition name into a UUID as follows:
-count=0
+done
+# turn each partition name into a UUID
 for KK in "${!mntPointDisk[@]}"; do
-  disk_uuid[count]=$(blkid -o value -s UUID "/dev/${KK}")
-  echo "${mntPointDisk[$KK]} UUID is ${disk_uuid[count]}"
-  ((count++))
+  disk_uuid=$(blkid -o value -s UUID "/dev/${KK}")
+  mntPointUUID[$KK]=$disk_uuid
 done
 # the swap partition on sda1
-disk_uuid[count]=$(blkid -o value -s UUID /dev/sda1) # swap partition
-echo "/dev/sda1 UUID is ${disk_uuid[count]}"
-((count++))
+disk_uuid=$(blkid -o value -s UUID /dev/sda1) # swap partition
+mntPointUUID["sda1"]=$disk_uuid
+echo "#
+disk name     UUID"
+for KK in "${!mntPointDisk[@]}"; do
+  if [ "$KK" = sda1 ]; then
+    echo "$KK      --- ${mntPointUUID[$KK]}"
+  else
+    echo "$KK --- ${mntPointUUID[$KK]}"
+  fi
+done
 # begin the fstab file
-  cat > /etc/fstab << "EOF"
+cat > /etc/fstab << "EOF"
 # Begin /etc/fstab
 
 # file system                              mount-point   type     options        dump   fsck
 #                                                                                order
 EOF
-count=0
 fsckVal=1
 dumporder=0
 # printf formats
 fstabformat="%-46s %-9s %-8s %-12s %5s %5s\n"
 thedisc="%-16s\n"
-if [ "$nvme0n1" = true -o "$nvme1n1" = true ]; then
-  for KK in "${!mntPointDisk[@]}"; do
+# print the root partition first
+for KK in "${!mntPointDisk[@]}"; do
+  if [ "${mntPointDisk[$KK]}" = "/" ]; then #print it
     printf "$thedisc" "# /dev/$KK" >> /etc/fstab
-    if [ "${mntPointDisk[$KK]}" = "/boot" ]; then # the ESP
-      printf "$fstabformat" "UUID=${disk_uuid[count++]}" "${mntPointDisk[$KK]}" "vfat" "rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro" "$dumporder" "$fsckVal" >> /etc/fstab
-    else
-      printf "$fstabformat" "UUID=${disk_uuid[count++]}" "${mntPointDisk[$KK]}" "ext4" "rw,relatime" "$dumporder" "$fsckVal" >> /etc/fstab
-    fi
-    fsckVal=2
-  done
-else # using disk sdb
-  for KK in "${!mntPointDisk[@]}"; do
-    echo "# /dev/$KK
-UUID=${disk_uuid[count++]}     ${mntPointDisk[$KK]} $buffer     ext4    rw,relatime       0     $fsckVal" >> /etc/fstab
-    ((count++))
-    if [ $count -eq 1 ]; then
-      buffer="    "
-      fsckVal=2
-    elif [ $count -eq 3 ]; then
-      buffer=" "
-      fsckVal=2
-    else
-      buffer=""
-    fi
-  done
-fi
+    printf "$fstabformat" "UUID=${mntPointUUID[$KK]}" "${mntPointDisk[$KK]}" "ext4" "rw,relatime" "$dumporder" "$fsckVal" >> /etc/fstab
+  fi
+done
+fsckVal=2
+# print /home next
+for KK in "${!mntPointDisk[@]}"; do
+  if [ "${mntPointDisk[$KK]}" = "/home" ]; then #print it
+    printf "$thedisc" "# /dev/$KK" >> /etc/fstab
+    printf "$fstabformat" "UUID=${mntPointUUID[$KK]}" "${mntPointDisk[$KK]}" "ext4" "rw,relatime" "$dumporder" "$fsckVal" >> /etc/fstab
+  fi
+done
+# print /opt next
+for KK in "${!mntPointDisk[@]}"; do
+  if [ "${mntPointDisk[$KK]}" = "/opt" ]; then #print it
+    printf "$thedisc" "# /dev/$KK" >> /etc/fstab
+    printf "$fstabformat" "UUID=${mntPointUUID[$KK]}" "${mntPointDisk[$KK]}" "ext4" "rw,relatime" "$dumporder" "$fsckVal" >> /etc/fstab
+  fi
+done
+# print the ESP
+printf "$thedisc" "# /dev/nvme0n1p1" >> /etc/fstab
+printf "$fstabformat" "UUID=585E-A734" "/boot" "vfat" "rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro" "$dumporder" "$fsckVal" >> /etc/fstab
 #
-# set swap on the rest of fstab
+# print swap last
 echo "# /dev/sda1
-UUID=${disk_uuid[count]}      none      swap     defaults         0     0" >> /etc/fstab
+UUID=${mntPointUUID["sda1"]}      none      swap     defaults         0     0" >> /etc/fstab
 cat >> /etc/fstab << "EOF"
 
 # End /etc/fstab
