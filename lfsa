@@ -95,10 +95,10 @@ umask 022
 LC_ALL=POSIX
 LFS_TGT=$(uname -m)-lfs-linux-gnu
 PATH=/usr/bin
-if [ ! -L /bin ]; then PATH=/bin:$PATH; fi
 PATH=$LFS/tools/bin:$PATH
 CONFIG_SITE=$LFS/usr/share/config.site
 export LC_ALL LFS_TGT PATH CONFIG_SITE
+export MAKEFLAGS=-j6
 EOF
     if [ -e /home/lfs/defineLFS ]; then rm -v /home/lfs/defineLFS; fi # in case it exists
     cat > /home/lfs/defineLFS << "EOF"
@@ -130,10 +130,10 @@ umask 022
 LC_ALL=POSIX
 LFS_TGT=$(uname -m)-lfs-linux-gnu
 PATH=/usr/bin
-if [ ! -L /bin ]; then PATH=/bin:$PATH; fi
 PATH=$LFS/tools/bin:$PATH
 CONFIG_SITE=$LFS/usr/share/config.site
 export LC_ALL LFS_TGT PATH CONFIG_SITE
+export MAKEFLAGS=-j6
 EOF
   cat > /home/lfs/defineLFS << "EOF"
 # this is sourced by .bashrc when su - lfs is done in chapter05
@@ -270,7 +270,7 @@ else
     SINGLE_PACKAGE="no"
   fi
   if [ -z "$PRINTIT" ]; then
-    PRINTIT="false"
+    PRINTIT="true"
   fi
 # store the values in the new config file
   echo "TZ=$TZ" | tee $cfg 
@@ -625,6 +625,13 @@ done
 #
 git-info () {
 # a close equivalent to svn info
+# make sure we are in the git dir
+local REPO="LFS"
+local bookdir=$bookDir
+local book_vers="trunk"
+local target=$( echo $REPO | awk '{print tolower($1)}')
+local REPODIR=${bookdir}/${book_vers}/${target}
+pushd $REPODIR > /dev/null
 
 function check_git_dir {
   local IS_GIT_DIR=$(git rev-parse --is-inside-work-tree)
@@ -675,7 +682,8 @@ cd $(readlink -f .)
 while [ ! -d .git ] && [ ! `pwd` = "/" ]; do cd ..; done
 WORKING_COPY_ROOT_PATH=$(pwd)
 
-echo "Working Copy Root Path: $WORKING_COPY_ROOT_PATH|Remote: $REMOTE|Remote URL: $REMOTE_URL|Branch: $BRANCH|Last Local Commit: $LAST_LOCAL_COMMIT ($LOCAL_LAST_MODIFIED)|Last Remote Commit: $LAST_REMOTE_COMMIT ($REMOTE_LAST_MODIFIED)|Synchronized: $INSYNC|Revision: $SHORT_COMMIT_HASH|"
+FINAL_OUTPUT="'Working Copy Root Path: $WORKING_COPY_ROOT_PATH|Remote: $REMOTE|Remote URL: $REMOTE_URL|Branch: $BRANCH|Last Local Commit: $LAST_LOCAL_COMMIT ($LOCAL_LAST_MODIFIED)|Last Remote Commit: $LAST_REMOTE_COMMIT ($REMOTE_LAST_MODIFIED)|Synchronized: $INSYNC|Revision: $SHORT_COMMIT_HASH|'"
+echo $FINAL_OUTPUT
 #echo "                Remote: $REMOTE"
 #echo "            Remote URL: $REMOTE_URL"
 #echo "                Branch: $BRANCH"
@@ -688,6 +696,7 @@ echo "Working Copy Root Path: $WORKING_COPY_ROOT_PATH|Remote: $REMOTE|Remote URL
 #  echo "          Synchronized: -- no remote branch --"
 #fi
 #
+popd > /dev/null
 } # end git-info
 #
 CheckoutGIT () {
@@ -720,21 +729,20 @@ local book_version=$3
 local rev="systemd" # default
 if [ "$SYSTEMD" = no ]; then rev="sysv"; fi
 #
+GITINFO=$(git-info)
 local target=$( echo $1 | awk '{print tolower($1)}')
 REPODIR=${bookdir}/${book_version}/${target}
-pushd $REPODIR > /dev/null
-GITINFO=$(git-info)
-popd > /dev/null
 GITrevision=$( echo $GITINFO | awk 'BEGIN{ RS = "|" };/Revision/ {print $0}' )
-if [ ! -d $DumpedCommands ]; then install -vdm755 $DumpedCommands; fi
-if [ ! -d $Dumpedhtml ]; then install -vdm755 $Dumpedhtml; fi
-if [ ! -e ${DumpedCommands}/.revision ]; then touch ${DumpedCommands}/.revision; fi # suppress a 'No such file' warning
-commandRevision=$( cat $DumpedCommands/.revision | awk '/Revision/ {print $0}')
+commandRevision=""
+if [ -e "$DumpedCommands/.revision" ]; then # exists so set commandRevision
+  commandRevision=$( cat $DumpedCommands/.revision | awk '/Revision/ {print $0}')
+fi
 if [ "$commandRevision" != "$GITrevision" ]; then # dump the new commands
-  rm -rf $DumpedCommands
+  rm -rf $DumpedCommands # make sure they don't exist
   rm -rf $Dumpedhtml
   install -vdm755 $DumpedCommands
   install -vdm755 $Dumpedhtml
+  if [ ! -e ${DumpedCommands}/.revision ]; then touch ${DumpedCommands}/.revision; fi # suppress a 'No such file' warning
   pushd $REPODIR > /dev/null
     make -j1 DUMPDIR=$DumpedCommands BASEDIR=$Dumpedhtml REV=$rev $target "dump-commands"
     for dir in $DumpedCommands $Dumpedhtml; do
@@ -1436,7 +1444,7 @@ else # use anduin to get the source tarball for the released book version
   wget --input-file=$LFS/sources/${bookvers}/wget-list --continue --directory-prefix=$LFS/sources/${bookvers}
 fi
 #set all the sources to owner lfs, if it exists
-if getent passwd lfs > /dev/null 2>&1; then
+if grep lfs /etc/passwd > /dev/null 2>&1; then
   echo "User lfs exists"
 #  chown -R -h lfs:root $srcdir # because chapter05.sh and chapter06.sh are run as lfs
 else
@@ -1455,11 +1463,7 @@ while read -r FileUrl; do
   fileNam=$( echo $FileUrl | awk -F\/ '{print $NF}' )
   wget $wgetopts -c $FileUrl -O ${srcdir}/${fileNam}
 done < $wgetlistFile
-#if getent passwd lfs > /dev/null 2>&1; then
-#  chown -R -h lfs:root $srcdir
-#else
-  chown -R -h root:root $srcdir
-#fi
+chown -R -h root:root $srcdir
 chmod 644 ${srcdir}/*
 #
 } # end GetSystemdSources
@@ -1639,7 +1643,7 @@ if [ -d "$pkgloc" ]; then
     fname=${found[0]##*/} # filename only
 #msg "fname is $fname"
     pkgPlusVers="${fname%${trimto}*}"
-#msg "pkgPlusVers is $pkgPlusVers"
+msg "pkgPlusVers is $pkgPlusVers"
 # TODO  doesn't work if separator not -
     pkgvers=$(echo $pkgPlusVers | awk -F\- '{print $NF}')
     rtrvers=($pkgvers)
@@ -1667,8 +1671,8 @@ if [ -d "$pkgloc" ]; then
         else
 # trim to the version number
           pkgnm="${pkgPlusVers%${pkgvers}}"
-#          echo "pkgvers is $pkgvers"
-#          echo "pkgnm is $pkgnm"
+          echo "pkgvers is $pkgvers"
+          echo "pkgnm is $pkgnm"
            rtrvers=$pkgvers
            return 0
         fi
@@ -1687,7 +1691,15 @@ else # no pkg location given - return the version of $2, if possible
       if [ "$separator" = "." ]; then # expect5 and tcl8
         pkgvers=$(echo $pkgPlusVers | awk -F\. '{print $2"."$3}')
       elif [ "$separator" = "-" ]; then # everything else
-        pkgvers=$(echo $pkgPlusVers | awk -F\- '{print $NF}')
+#msg "pkgPlusVers is $pkgPlusVers"
+        case $pkgPlusVers in
+           ncurses*) # now a hyphen in the pkgvers
+             pkgvers=$(echo $pkgPlusVers | awk -F\- '{print $2"-"$3}')
+           ;;
+           *)
+             pkgvers=$(echo $pkgPlusVers | awk -F\- '{print $NF}')
+           ;;
+        esac
       fi
       if [ -z "$pkgvers" ]; then
         pkgnm=""
@@ -1774,7 +1786,7 @@ for (( i=0; i<$numb; i++ )); do
               countg=$jk
               break
            ;;
-           *"make -c"*) # ncurses has a pushd with make commands
+           *"make -C"*) # ncurses has a pushd with make commands
               if $foundPushd; then # keep writing until popd found
                 combine[countc++]="  ${commands[jk]}"
               else
@@ -1886,6 +1898,9 @@ for (( i=0; i<$numb; i++ )); do
               combine[countc++]="  ${commands[jl]}"
               cont=0
               inc=true
+           ;;
+           *'/test-installation/'*) # a sed in glibc - write it
+              combine[countc++]="  ${commands[jl]}"
            ;;
            *install*) # assume an install command
               countg=$jl
@@ -2144,7 +2159,7 @@ fi
 getComms () {
 # $1 is the chapter containing the commands
 # if present, $2 is the package name. This can be used to modify the commands
-# Note - DumpedCommands and CmdName are global variables
+# Note - DumpedCommands, CmdName and rtrnCom are global variables
 local acom=""
 local bcom=""
 local chapreq=$1
@@ -2188,6 +2203,27 @@ if [ ! -z "$pkgname" ]; then
        rtrnCom=(${bcom[@]})
        return 0
      ;;
+     glibc) # remove the commands for updating glibc and the commands to install all locales
+       ic=0
+       foundnscd=false
+       for tline in ${acom[@]}; do
+         case $tline in
+            *'rm -f /usr/sbin/nscd'*) # don't want this
+              foundnscd=true
+            ;;
+            *'install -vm755 dest/usr/lib'*) # need the commands after this
+              foundnscd=false
+            ;;
+            *)
+              if [ "$foundnscd" = false ]; then # write it
+                bcom[ic++]=$tline
+              fi
+            ;;
+         esac
+       done
+       rtrnCom=(${bcom[@]})
+       return 0
+     ;;
   esac
 else # return everything untouched
   rtrnCom=(${acom[@]}) # rtrnCom is global
@@ -2211,6 +2247,8 @@ if [ "$PkgName" = kernel ]; then # if not making the kernel, edit the commands
   else # don't edit the commands
     getComms $currentChapter
   fi
+elif [ "$PkgName" = glibc ]; then # edit glibc in chapter08
+    getComms $currentChapter $PkgName
 else
   getComms $currentChapter
 fi
@@ -2367,6 +2405,9 @@ else
       case ${commandScripts[k]} in
          install*)
                 case ${commandScripts[k]} in
+                   *'/usr/share/doc/python'*) # install the python docs
+                       echo ${commandScripts[k]}
+                   ;;
                    *'/usr/share/doc'*) # if a cont line then store it, otherwise ignore it
                        case ${commandScripts[k]} in
                           *\\) # a continuation line
@@ -2405,6 +2446,16 @@ else
                 esac
          ;;
          ln*) # a symlink so write it - e.g. vim74
+                echo ${commandScripts[k]}
+         ;;
+         *'/usr/share/doc/python'*) # docs for python so write it
+                if [ $contline -gt 0 ]; then # write out continuation lines
+                  for (( l=0; l<$contline; l++ )); do
+                    echo "${cacheit[l]}"
+                  done
+                  contin=false
+                  contline=0
+                fi
                 echo ${commandScripts[k]}
          ;;
          *'/usr/share/doc'*)
@@ -2563,60 +2614,6 @@ mesondestcom[3]="install -vDm644 data/shell-completions/bash/meson \"\${CUR_DIR}
 mesondestcom[4]="install -vDm644 data/shell-completions/zsh/_meson \"\${CUR_DIR}\"/usr/share/zsh/site-functions/_meson"
 rtrncommands=(${mesondestcom[@]})
 } # end mesonDestdirComms
-#
-ncursesComms () {
-local ncursescom=""
-ncursescom[0]="./configure --prefix=/usr           \\"
-ncursescom[1]="            --mandir=/usr/share/man \\"
-ncursescom[2]="            --with-shared           \\"
-ncursescom[3]="            --without-debug         \\"
-ncursescom[4]="            --without-normal        \\"
-ncursescom[5]="            --enable-pc-files       \\"
-ncursescom[6]="            --enable-widec          \\"
-ncursescom[7]="            --with-pkg-config-libdir=/usr/lib/pkgconfig"
-ncursescom[8]="make"
-ncursescom[9]="make DESTDIR=\"\$CUR_DIR\" install"
-ncursescom[10]="install -vm755 \"\${CUR_DIR}\"/usr/lib/libncursesw.so.${ncursesvers} /usr/lib"
-ncursescom[11]="rm -v \"\${CUR_DIR}\"/usr/lib/{libncursesw.so.${ncursesvers},libncurses++w.a}"
-ncursescom[12]="set +e"
-ncursescom[13]="pushd ../usr > /dev/null"
-ncursescom[14]="cp -a * /usr"
-ncursescom[15]="popd > /dev/null"
-ncursescom[16]="set -e"
-ncursescom[17]="for lib in ncurses form panel menu ; do"
-ncursescom[18]="    rm -vf                    /usr/lib/lib\${lib}.so"
-ncursescom[19]="    echo \"INPUT(-l\${lib}w)\" > /usr/lib/lib\${lib}.so"
-ncursescom[20]="    ln -sfv \${lib}w.pc        /usr/lib/pkgconfig/\${lib}.pc"
-ncursescom[21]="done"
-ncursescom[22]="rm -vf                     /usr/lib/libcursesw.so"
-ncursescom[23]="echo \"INPUT(-lncursesw)\" > /usr/lib/libcursesw.so"
-ncursescom[24]="ln -sfv libncurses.so      /usr/lib/libcurses.so"
-rtrncommands=(${ncursescom[@]})
-} # end ncursesComms
-#
-ncursesDestdirComms () {
-local ncursesdestcom=""
-ncursesdestcom[0]="./configure --prefix=/usr           \\"
-ncursesdestcom[1]="            --mandir=/usr/share/man \\"
-ncursesdestcom[2]="            --with-shared           \\"
-ncursesdestcom[3]="            --without-debug         \\"
-ncursesdestcom[4]="            --without-normal        \\"
-ncursesdestcom[5]="            --enable-pc-files       \\"
-ncursesdestcom[6]="            --enable-widec          \\"
-ncursesdestcom[7]="            --with-pkg-config-libdir=/usr/lib/pkgconfig"
-ncursesdestcom[8]="make"
-ncursesdestcom[9]="make DESTDIR=\"\$CUR_DIR\" install"
-ncursesdestcom[10]="rm -v \"\${CUR_DIR}\"/usr/lib/libncurses++w.a"
-ncursesdestcom[11]="for lib in ncurses form panel menu ; do"
-ncursesdestcom[12]="    rm -vf                    \"\${CUR_DIR}\"/usr/lib/lib\${lib}.so"
-ncursesdestcom[13]="    echo \"INPUT(-l\${lib}w)\" > \"\${CUR_DIR}\"/usr/lib/lib\${lib}.so"
-ncursesdestcom[14]="    ln -sfv \${lib}w.pc        \"\${CUR_DIR}\"/usr/lib/pkgconfig/\${lib}.pc"
-ncursesdestcom[15]="done"
-ncursesdestcom[16]="rm -vf                     \"\${CUR_DIR}\"/usr/lib/libcursesw.so"
-ncursesdestcom[17]="echo \"INPUT(-lncursesw)\" > \"\${CUR_DIR}\"/usr/lib/libcursesw.so"
-ncursesdestcom[18]="ln -sfv libncurses.so      \"\${CUR_DIR}\"/usr/lib/libcurses.so"
-rtrncommands=(${ncursesdestcom[@]})
-} # end ncursesDestdirComms
 #
 pymodDestdirComms () {
 local pymoduledestcom=""
@@ -3004,7 +3001,7 @@ createPkguser () {
 # if $1 and $2 are 0, then the values are incremented on the initial value of 10000
 # does the $PkgName user exist?
 ret=false
-getent passwd $PkgName > /dev/null 2>&1 && ret=true
+grep $PkgName /etc/passwd > /dev/null 2>&1 && ret=true
 if $ret; then
   echo "user $PkgName exists"
 # make sure the home dir exists
@@ -3033,10 +3030,10 @@ LFS=/mnt/lfs
 LC_ALL=POSIX
 LFS_TGT=$(uname -m)-lfs-linux-gnu
 PATH=/usr/bin
-if [ ! -L /bin ]; then PATH=/bin:$PATH; fi
 PATH=$LFS/tools/bin:$PATH
 CONFIG_SITE=$LFS/usr/share/config.site
 export LFS LC_ALL LFS_TGT PATH CONFIG_SITE
+export MAKEFLAGS=-j6
 EOF
 fi
 } # end createPkguser
@@ -3080,7 +3077,7 @@ if [ $UID -ne 0 ]; then echo Please run this script as root. ; exit 1; fi
 EOF
 fi
 echo "me=\$0
-GITINFO=\"$GITINFO\"
+GITINFO=$(git-info)
 AS_ROOT=$as_root" >> $Output
 if $useDESTDIR; then echo "useDESTDIR=$useDESTDIR" >> $Output; fi
 case "$currentChapter" in
@@ -3801,7 +3798,7 @@ for srcURL in ${sourceURL[@]}; do
   case $srcURL in
      $serchstr) # found serchstr in the source URL
        case $pkgname in # add the source location for downloaded src files in chapters 5 and 6
-          bash|coreutils|diffutils|file|findutils|gawk|glibc|grep|gzip|m4|ncurses|openssl|patch|sed|tar|xz)
+          bash|coreutils|diffutils|file|findutils|gawk|glibc|grep|gzip|libxcrypt|m4|ncurses|openssl|patch|sed|tar|xz)
             if [ "$Chapter" != update ]; then useThisSrcLoc="${buildDir}/${pkgname}"; fi
           ;;
           binutils)
@@ -3869,25 +3866,25 @@ case $FuncName in
 #fi
 #EOF
 #   ;;
-#   bash) # need the patch
-#     echo "bashPatch=\"$bashPatch\"" >> $Output
-#     cat >> $Output << "EOF"
-#if [ -e ${CUR_DIR}/${bashPatch} ]; then
-#  echo "patch already in place - will use that"
-#elif [ -e ${sourceloc}/${bashPatch} ]; then
-#  cp -v ${sourceloc}/${bashPatch} ../
-#else # download it
-#  if [ -e /usr/bin/wget ]; then # wget exists on target machine
-#    wget $wgetopts $ncc -O ../${bashPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${bashPatch}"
-#  else
-#    echo "/usr/bin/wget not found on the target machine"
-#    echo "Install it to continue"
-#    echo "Aborting"
-#    exit 1
-#  fi
-#fi
-#EOF
-#   ;;
+   bash) # need the patch
+     echo "bashPatch=\"$bashPatch\"" >> $Output
+     cat >> $Output << "EOF"
+if [ -e ${CUR_DIR}/${bashPatch} ]; then
+  echo "patch already in place - will use that"
+elif [ -e ${sourceloc}/${bashPatch} ]; then
+  cp -v ${sourceloc}/${bashPatch} ../
+else # download it
+  if [ -e /usr/bin/wget ]; then # wget exists on target machine
+    wget $wgetopts $ncc -O ../${bashPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${bashPatch}"
+  else
+    echo "/usr/bin/wget not found on the target machine"
+    echo "Install it to continue"
+    echo "Aborting"
+    exit 1
+  fi
+fi
+EOF
+   ;;
 #   binutils) # need the patch
 #     echo "binutilsPatch=\"$binutilsPatch\"" >> $Output
 #     cat >> $Output << "EOF"
@@ -3968,15 +3965,31 @@ EOF
 #EOF
 #   ;;
    glibc) # need the patch and the time zone data
-     echo "glibcPatch=\"${glibcPatch}\"" >> $Output
+#     echo "glibcUpstreamPatch=\"${glibcUpstreamPatch}\"" >> $Output
+     echo "glibcFhsPatch=\"${glibcFhsPatch}\"" >> $Output
+#     cat >> $Output << "EOF"
+#if [ -e ${CUR_DIR}/${glibcUpstreamPatch} ]; then
+#  echo "$glibcUpstreamPatch patch already in $CUR_DIR, will use that"
+#elif [ -e ${sourceloc}/${glibcUpstreamPatch} ]; then
+#  cp -v ${sourceloc}/${glibcUpstreamPatch} ../
+#else
+#  if [ -e /usr/bin/wget ]; then # wget exists on target machine
+#    wget $wgetopts $ncc -O ../${glibcUpstreamPatch} http://www.linuxfromscratch.org/patches/lfs/development/${glibcUpstreamPatch}
+#  else
+#    echo "/usr/bin/wget not found on the target machine"
+#    echo "Install it to continue"
+#    echo "Aborting"
+#    exit 1
+#  fi
+#fi
      cat >> $Output << "EOF"
-if [ -e ${CUR_DIR}/${glibcPatch} ]; then
-  echo "$glibcPatch patch already in $CUR_DIR, will use that"
-elif [ -e ${sourceloc}/${glibcPatch} ]; then
-  cp -v ${sourceloc}/${glibcPatch} ../
+if [ -e ${CUR_DIR}/${glibcFhsPatch} ]; then
+  echo "$glibcFhsPatch patch already in $CUR_DIR, will use that"
+elif [ -e ${sourceloc}/${glibcFhsPatch} ]; then
+  cp -v ${sourceloc}/${glibcFhsPatch} ../
 else
   if [ -e /usr/bin/wget ]; then # wget exists on target machine
-    wget $wgetopts $ncc -O ../${glibcPatch} http://www.linuxfromscratch.org/patches/lfs/development/${glibcPatch}
+    wget $wgetopts $ncc -O ../${glibcFhsPatch} http://www.linuxfromscratch.org/patches/lfs/development/${glibcFhsPatch}
   else
     echo "/usr/bin/wget not found on the target machine"
     echo "Install it to continue"
@@ -4078,6 +4091,25 @@ EOF
 #fi
 #EOF
 #   ;;
+   pkgconf) # need the patch
+     echo "pkgconfPatch=\"${pkgconfPatch}\"" >> $Output
+     cat >> $Output << "EOF"
+if [ -e ${CUR_DIR}/${pkgconfPatch} ]; then
+  echo "patch already in place - will use that"
+elif [ -e ${sourceloc}/${pkgconfPatch} ]; then
+  cp -v ${sourceloc}/${pkgconfPatch} ../
+else # download it
+  if [ -e /usr/bin/wget ]; then # wget exists on target machine
+    wget $wgetopts $ncc -O ../${pkgconfPatch} "http://www.linuxfromscratch.org/patches/lfs/development/${pkgconfPatch}"
+  else
+    echo "/usr/bin/wget not found on the target machine"
+    echo "Install it to continue"
+    echo "Aborting"
+    exit 1
+  fi
+fi
+EOF
+   ;;
    readline) # need the patch
      echo "readlinePatch=\"${readlinePatch}\"" >> $Output
      cat >> $Output << "EOF"
@@ -4318,6 +4350,16 @@ mkdir -pv ${PkgUserDir}/${PkgName}/run/dbus
 chown 0:0 ${PkgUserDir}/${PkgName}/run
 chown dbus:dbus ${PkgUserDir}/${PkgName}/run/dbus
 chmod 1777 ${PkgUserDir}/${PkgName}/run
+EOF
+     fi
+   ;;
+   e2fsprogs)
+     if ! $useDESTDIR; then
+       cat >> $Output << "EOF"
+gunzip -v /usr/share/info/libext2fs.info.gz
+install-info --dir-file=/usr/share/info/dir /usr/share/info/libext2fs.info
+chown root:install /usr/share/info/dir
+chmod 664 /usr/share/info/dir
 EOF
      fi
    ;;
@@ -4660,7 +4702,6 @@ chmod 2755 /var/log/journal
 chown 0:0 /usr # had to change it to systemd to allow time update
 systemctl preset-all
 systemctl disable systemd-time-wait-sync.service
-systemctl disable systemd-sysupdate
 rm -fv /etc/sysctl.d/50-pid-max.conf
 rm -fv /usr/lib/lib{blkid,uuid,mount}.so*
 rm -fv /usr/lib/tmpfiles.d/systemd-nologin.conf
@@ -4884,6 +4925,8 @@ if [ "$LFS" != /mnt/lfs ]; then
   echo "It should be /mnt/lfs"
   echo "Abort"
   exit 1
+else
+  echo "LFS is $LFS"
 fi
 if [ -z "$LFS_TGT" ]; then # not set. This will not work so abort
   echo "env variable LFS_TGT not set"
@@ -4894,6 +4937,8 @@ elif [ "$LFS_TGT" != x86_64-lfs-linux-gnu ]; then
   echo "It is set to $LFS_TGT"
   echo "check that this is what you intended, then modify this script"
   exit 1
+else
+  echo "LFS_TGT is $LFS_TGT"
 fi
 EOF
                 echo "CreateBuildDir \$FuncName" >> $Output
@@ -4985,12 +5030,12 @@ EOF
 	           glibc)
                      if [ "$SOURCES" = atinstall ]; then
 # download the patch
-                       echo "glibcPatch=\"${glibcPatch}\"" >> $Output
+                       echo "glibcFhsPatch=\"${glibcFhsPatch}\"" >> $Output
                        cat >> $Output << "EOF"
-if [ -e ${CUR_DIR}/${glibcPatch} ]; then
-  echo "patch $glibcPatch already in $CUR_DIR, will use that"
+if [ -e ${CUR_DIR}/${glibcFhsPatch} ]; then
+  echo "patch $glibcFhsPatch already in $CUR_DIR, will use that"
 else
-  wget $wgetopts http://www.linuxfromscratch.org/patches/lfs/development/${glibcPatch}
+  wget $wgetopts http://www.linuxfromscratch.org/patches/lfs/development/${glibcFhsPatch}
 fi
 EOF
                        getSrcfileURL sourceURL[@] $FuncName $SrcName
@@ -5025,13 +5070,16 @@ EOF
                 if [ "$FuncName" = binutilspass1 ]; then # set initial value of 10000
   		  uidVal=10000 
 		  gidVal=10000
-		elif [ "$FuncName" = openssl ]; then # set the GID to 10055, the value in Ch8
-                  uidVal=10055
-                  gidVal=10055
-                elif [ "$FuncName" = wget ]; then # set the GID to 10170, it is deleted at end of LFS
+                elif [ "$FuncName" = libxcrypt ]; then # set the GID to 10042, the value in Ch8
+                  uidVal=10042
+                  gidVal=10042
+		elif [ "$FuncName" = openssl ]; then # set the GID to 10056, the value in Ch8
+                  uidVal=10056
+                  gidVal=10056
+                elif [ "$FuncName" = wget ]; then # set the GID to 10169, it is deleted at end of LFS
 # because it is reinstalled in BLFS
-                  uidVal=10170
-                  gidVal=10170
+                  uidVal=10169
+                  gidVal=10169
 	        fi
                 echo "uidVal=$uidVal
 gidVal=$gidVal" >> $Output
@@ -5201,12 +5249,12 @@ EOF
                    glibc)
                      if [ "$SOURCES" = atinstall ]; then
 # download the patch
-                       echo "glibcPatch=\"${glibcPatch}\"" >> $Output
+                       echo "glibcFhsPatch=\"${glibcFhsPatch}\"" >> $Output
                        cat >> $Output << "EOF"
-if [ -e ${CUR_DIR}/${glibcPatch} ]; then
-  echo "patch $glibcPatch already in $CUR_DIR, will use that"
+if [ -e ${CUR_DIR}/${glibcFhsPatch} ]; then
+  echo "patch $glibcFhsPatch already in $CUR_DIR, will use that"
 else
-  wget $wgetopts http://www.linuxfromscratch.org/patches/lfs/development/${glibcPatch}
+  wget $wgetopts http://www.linuxfromscratch.org/patches/lfs/development/${glibcFhsPatch}
 fi
 EOF
                      fi
@@ -5266,10 +5314,10 @@ EOF
 # source the environment variables in the home dir
 source ${PkgUserDir}/${PkgName}/.bashrc
 # check some env variable values
-#echo "LFS is $LFS"
-#echo "LFS_TGT is $LFS_TGT"
-#echo "PATH is $PATH"
-#echo "CONFIG_SITE is $CONFIG_SITE"
+echo "LFS is $LFS"
+echo "LFS_TGT is $LFS_TGT"
+echo "PATH is $PATH"
+echo "CONFIG_SITE is $CONFIG_SITE"
 if [ "$LFS" != "/mnt/lfs" ]; then # abort
   echo "LFS not set to /mnt/lfs - abort"
   exit 1
@@ -5434,7 +5482,7 @@ starttime=\$( date +%s )
                               echo "# don't need to call unpack, using pip to install the module" >> $Output
 			    fi
                           ;;
-                          gettext|bison|perl|python3|texinfo|util-linux)
+                          gettext|bison|perl|texinfo|util-linux)
                             getUrlSrcDnld $useUnpack "$PkgName" "" "$PkgUserDir"
                           ;;
                           kernel|linux-headers) # check if a chapter10 install or an update
@@ -5475,6 +5523,10 @@ msg "calling getUrlSrcDnld, useUnpack is $useUnpack"
                               echo "INVESTIGATE"
                               exit 1
                             fi
+                          ;;
+                          python3)
+                            getExtraFiles "python3" "python-${pythonvers}-docs-html.tar.bz2" "" true
+                            getUrlSrcDnld $useUnpack "$PkgName" "" "$PkgUserDir"
                           ;;
                           *)
                             getUrlSrcDnld $useUnpack "$PkgName" "" "$preChrootBuild"
@@ -5543,8 +5595,6 @@ EOF
                                 if [ "$Chapter" = update ]; then # useThisSrcLoc not needed because install dir is cleaned
                                   useThisSrcLoc=""
                                 fi
-msg "calling getUrlSrcDnld, useUnpack is $useUnpack"
-msg "PkgName is $PkgName"
                                 getUrlSrcDnld $useUnpack "$PkgName" '${SrcName}${pkgVers}.tar.xz' "$useThisSrcLoc"
                               else # a problem
                                 echo "calling getUrlSrcDnld but Chapter is $Chapter"
@@ -5579,18 +5629,13 @@ destdirInstall "$CUR_DIR"
 EOF
 else
   case $PkgName in
-     kernel) # if making the kernel, need to add mproper and any firmware
+     kernel) # if making the kernel, need to add any firmware
        if $make_kernel; then
          cat >> $Output << "EOF"
-make mrproper
-cp ${sourcedir}/.config .
 # copy the firmware to /usr/lib/firmware
 cp -r /tools/pkguser/firmware/* /usr/lib/firmware/
 EOF
        fi
-     ;;
-     man-pages)
-       echo "sed -i '/install -d -m 755 \\\\\$(DESTDIR)\\\\\$(MANDIR)/d ' Makefile" >> $Output
      ;;
      py3-installer) # don't call unpack but need to set timings
        if [[ ("$Chapter" = chapter08 || "$Chapter" = update) && "$useDESTDIR" = false ]]; then
@@ -5905,14 +5950,8 @@ EOF
                  setuplinks # setup any preprocessing commands
                  if [[ ! -z "$otherPrePro" || ! -z "$doFirst" || ! -z "$links" ]]; then resolvelinks; fi # not null
                fi
+# use a specific UID or a different section with some packages
                case $PkgName in
-                  openssl)
-                    cat >> $Output << "EOF"
-if [ "$(grep -q ^$PkgName\: /etc/passwd;echo $?)" != 0 ]; then
-  installpkg $PkgName "core" 10055
-fi
-EOF
-                  ;;
                   py3-installer)
                     cat >> $Output << "EOF"
 if [ "$(grep -q ^$PkgName\: /etc/passwd;echo $?)" != 0 ]; then
@@ -6291,9 +6330,9 @@ EOF
             if ! $as_root; then
                cat >> $Output << "EOF"
 # delete files owned by wget in Chapter06
-# wget is set up as 10170:10170 but will be installed properly in blfs
+# wget is set up as 10169:10169 but will be installed properly in blfs
 echo "Deleting temporary files owned by wget"
-/usr/bin/listdelpkg.sh 10170 10170 delete
+/usr/bin/listdelpkg.sh 10169 10169 delete
 # change owner of /usr/share/locale/en_GB and rw installed by wget
 chown bash:bash /usr/share/locale/{en_GB,rw}
 chown bash:install /usr/share/locale/{rw/LC_MESSAGES,en_GB/LC_MESSAGES}
@@ -6333,6 +6372,11 @@ links=""
 doFirst=""
 otherPrePro=""
 case $PkgName in
+    acl)
+        if ! $useDESTDIR; then
+          doFirst="/usr/include/sys"
+        fi
+    ;;
     gcc)
         if ! $useDESTDIR; then
           links="/usr/lib/libstdc++.{a,la} /usr/lib/libgcc_s.so{,.1} /usr/lib/libstdc++.so{,.6} /usr/lib/gcc"
@@ -6391,6 +6435,11 @@ case $PkgName in
         if [ "$Chapter" != update ]; then
           otherPrePro="mkdir -pv /usr/lib/firmware"
           doFirst="/usr/lib/firmware"
+        fi
+    ;;
+    libxcrypt)
+        if ! $useDESTDIR; then
+          links="/usr/include/crypt.h /usr/lib/{libcrypt.so*,libcrypt.la,pkgconfig/{libcrypt.pc,libxcrypt.pc}} /usr/share/man/{man3/crypt*,man5/crypt*}"
         fi
     ;;
     man-pages) # in update mode, need to own some man pages
@@ -6983,6 +7032,11 @@ case $PkgName in
           fi
         fi
     ;;
+    automake) # remove the tests
+        GetCommands \
+         | sed -e '/This block must be edited to suit your needs/,/End of editable block/d' \
+         >> $Output
+    ;;
     bash)
         if [ "$currentChapter" = chapter06 ]; then
           if $useDESTDIR56; then # special case of using DESTDIR in chapter06
@@ -7000,7 +7054,7 @@ case $PkgName in
             if $useDESTDIR; then 
               GetCommands \
               | sed -e '/docdir=\/usr\/share\/doc/i\              --bindir=\/usr\/bin            \\' \
-                    -e '/chown -Rv tester/,/exit/d' \
+                    -e '/chown -R tester/,/exit \$value/d' \
                     -e '/EOF/d' \
                     -e '/exec \/usr\/bin\/bash/i ln -s bash ${CUR_DIR}\/usr\/bin\/sh' \
                     -e '/exec \/usr\/bin\/bash --login/d' \
@@ -7008,7 +7062,7 @@ case $PkgName in
             else
               GetCommands \
               | sed -e '/docdir=\/usr\/share\/doc/i\              --bindir=\/usr\/bin            \\' \
-                    -e '/chown -Rv tester/,/exit/d' \
+                    -e '/chown -R tester/,/exit \$value/d' \
                     -e '/EOF/d' \
                     -e '/exec \/usr\/bin\/bash/i rm -rf \/usr\/bin\/sh\n\ln -s bash \/usr\/bin\/sh' \
                     -e '/exec \/usr\/bin\/bash --login/d' \
@@ -7016,7 +7070,7 @@ case $PkgName in
             fi
           else
             GetCommands \
-            | sed -e '/chown -Rv tester/,/exit/d' \
+            | sed -e '/chown -R tester/,/exit \$value/d' \
                   -e '/EOF/d' \
             >> $Output
           fi
@@ -7151,6 +7205,14 @@ EOF
 echo "#\"" >> $Output
         fi
     ;;
+    chroot) # remove the EDITME bits
+        GetCommands \
+         | sed -e 's/\*\*EDITME//' \
+               -e 's/EDITME\*\*//' \
+               -e '/This block must be edited to suit your needs/d' \
+               -e '/End of editable block/d' \
+         >> $Output
+    ;;
     coreutils)
         if [ "$currentChapter" = chapter06 ]; then
           if $useDESTDIR56; then # special case of using DESTDIR in chapter06
@@ -7168,16 +7230,15 @@ echo "#\"" >> $Output
           if $useDESTDIR; then
             if [ "$SYSTEMD" = yes ]; then
               GetCommands \
-               | sed -e 's/uptime/uptime \\\n\              --libexecdir=\/usr\/lib/' \
-                     -e "/make NON_ROOT_USERNAME=nobody/,/sed -i '\/dummy\/d' \/etc\/group/d" \
+               | sed -e '/enable-no-install-program/i\              --libexecdir=\/usr\/lib \\' \
+                     -e "/make NON_ROOT_USERNAME/,/groupdel dummy/d" \
                      -e '/mv -v \/usr\/bin\/chroot \/usr\/sbin/d' \
-                     -e '/mv -v \/usr\/bin\/{head/d' \
                      -e '/chroot.1/i mkdir -pv ${CUR_DIR}\/usr\/share\/man\/man8' \
                      -e 's/\/usr\/share\/man/${CUR_DIR}\/usr\/share\/man/g' \
                >> $Output
             else
               GetCommands \
-               | sed -e "/make NON_ROOT_USERNAME=nobody/,/sed -i '\/dummy\/d' \/etc\/group/d" \
+               | sed -e "/make NON_ROOT_USERNAME/,/groupdel dummy/d" \
                      -e '/mv -v \/usr\/bin\/chroot \/usr\/sbin/d' \
                      -e 's/\/usr\/bin\//${CUR_DIR}\/usr\/bin\//g' \
                      -e '/chroot.1/i mkdir -pv ${CUR_DIR}\/usr\/share\/man\/man8' \
@@ -7187,13 +7248,13 @@ echo "#\"" >> $Output
           else # not useDESTDIR
             if [ "$SYSTEMD" = yes ]; then
               GetCommands \
-               | sed -e 's/uptime/uptime \\\n\              --libexecdir=\/usr\/lib/' \
-                     -e "/make NON_ROOT_USERNAME=nobody/,/sed -i '\/dummy\/d' \/etc\/group/d" \
+               | sed -e '/enable-no-install-program/i\              --libexecdir=\/usr\/lib \\' \
+                     -e "/make NON_ROOT_USERNAME/,/groupdel dummy/d" \
                      -e '/mv -v \/usr\/bin\/chroot \/usr\/sbin/d' \
                >> $Output
             else
               GetCommands \
-               | sed -e "/make NON_ROOT_USERNAME=nobody/,/sed -i '\/dummy\/d' \/etc\/group/d" \
+               | sed -e "/make NON_ROOT_USERNAME/,/groupdel dummy/d" \
                      -e '/mv -v \/usr\/bin\/chroot \/usr\/sbin/d' \
                >> $Output
             fi
@@ -7318,6 +7379,7 @@ echo "#\"" >> $Output
                    -e 's/cd       build/cd e2fsprogs-build/' \
                    -e '/configure --prefix=\/usr/a\               --sysconfdir=/etc        \\' \
                    -e '/enable-elf-shlibs/i\               --libdir=\/usr\/lib       \\\n\               --sbindir=\/usr\/bin      \\' \
+                   -e '/gunzip -v /,/metadata_csum_seed/d' \
              >> $Output
           else
             GetCommands \
@@ -7527,47 +7589,24 @@ print $0;
           if [ "$currentChapter" = chapter08 ]; then
 # set up glibc's timezone
 # test if the build dir exists
-# if SYSTEMD=yes, but the book is not systemd, then need to add the nscd systemd files
-            if [ "$SYSTEMD" = yes -a "$isSystemdBook" = false ]; then
-              GetCommands \
-               | sed -e 's/prefix=\/usr/prefix=\/usr --libexecdir=\/usr\/lib/' \
-                     -e '/mkdir -pv \/usr\/lib\/locale/i install -v -Dm644 ..\/nscd\/nscd.tmpfiles \/usr\/lib\/tmpfiles.d\/nscd.conf\ninstall -v -Dm644 ..\/nscd\/nscd.service \/usr\/lib\/systemd\/system\/nscd.service' \
-                     -e '/tzselect/d' \
-                     -e 's/zic/\/usr\/sbin\/zic/' \
-                     -e 's[\*\*EDITME<xxx>EDITME\*\*['$TZ'[' \
-               | awk '{if ($1 == "mkdir" && $2 =="-v")
+            GetCommands \
+             | sed -e 's/prefix=\/usr/prefix=\/usr --libexecdir=\/usr\/lib/' \
+	           -e '/make check/,/grep \"Timed out\"/d' \
+                   -e '/make localedata\/install-locales/,/localedef -i ja_JP/d' \
+                   -e '/tzselect/d' \
+                   -e 's/zic/\/usr\/bin\/zic/' \
+                   -e 's[\*\*EDITME<xxx>EDITME\*\*['$TZ'[' \
+             | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
 else
 print $0
 }' \
-               | awk '{if ($1 == "mkdir" && $NF =="/etc/ld.so.conf.d")
+             | awk '{if ($1 == "mkdir" && $NF =="/etc/ld.so.conf.d")
 print "if [ ! -e "$NF" ]; then\n  "$1" -v "$NF"\nfi";
 else
 print $0
 }' \
-               >> $Output
-            else
-              GetCommands \
-               | sed -e 's/prefix=\/usr/prefix=\/usr --libexecdir=\/usr\/lib/' \
-	             -e 's/libc_cv_slibdir=\/lib/libc_cv_slibdir=\/usr\/lib/' \
-		     -e 's/ld-linux.so.2        \/lib/ld-linux.so.2        \/usr\/lib/' \
-		     -e 's/ld-linux-x86-64.so.2 \/lib/ld-linux-x86-64.so.2 \/usr\/lib/' \
-		     -e 's/service \/lib\/systemd\/system/service \/usr\/lib\/systemd\/system/' \
-                     -e '/tzselect/d' \
-                     -e 's/zic/\/usr\/sbin\/zic/' \
-                     -e 's[\*\*EDITME<xxx>EDITME\*\*['$TZ'[' \
-               | awk '{if ($1 == "mkdir" && $2 =="-v")
-print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
-else
-print $0
-}' \
-               | awk '{if ($1 == "mkdir" && $NF =="/etc/ld.so.conf.d")
-print "if [ ! -e "$NF" ]; then\n  "$1" -v "$NF"\nfi";
-else
-print $0
-}' \
-               >> $Output
-            fi
+             >> $Output
           else # chapter05
             if $useDESTDIR56; then # special case of using DESTDIR in chapter05 and 06
               GetCommands \
@@ -7580,7 +7619,7 @@ else
 print $0
 }' \
                >> $Output
-            else
+            else # not DESTDIR in ch05
               GetCommands \
                | awk '{if ($1 == "mkdir" && $2 =="-v")
 print "if [ ! -e "$NF" ]; then\n  "$0"\nfi";
@@ -7602,8 +7641,6 @@ print $0
                    -e'/\/usr\/lib\/tmpfiles.d/i install -dm755 ${CUR_DIR}\/usr\/lib\/{locale,systemd\/system,tmpfiles.d}' \
                    -e 's/\/usr\/lib\/tmpfiles.d\/nscd.conf/${CUR_DIR}\/usr\/lib\/tmpfiles.d\/nscd.conf/' \
                    -e 's/\/usr\/lib\/systemd\/system\/nscd.service/${CUR_DIR}\/usr\/lib\/systemd\/system\/nscd.service/' \
-                   -e '/mkdir -pv \/usr\/lib\/locale/,/make localedata\/install-locales/d' \
-                   -e '/localedef -i POSIX /,/localedef -i ja_JP /d' \
                    -e 's/cat > \/etc\/nsswitch.conf/cat > ${CUR_DIR}\/etc\/nsswitch.conf/' \
                    -e 's/$ZONEINFO/${CUR_DIR}$ZONEINFO/' \
                    -e 's[\*\*EDITME<xxx>EDITME\*\*['$TZ'[' \
@@ -7843,6 +7880,11 @@ print $0
           GetCommands >> $Output
         fi
     ;;
+    libxcrypt)
+        GetCommands \
+         | sed -e '/make distclean/,/cp -av /d' \
+         >> $Output
+    ;;
     m4)
         if $useDESTDIR56; then # special case of using DESTDIR in chapter06
           GetCommands \
@@ -7884,17 +7926,6 @@ print $0
           fi
         fi
     ;;
-    man-pages)
-        if $useDESTDIR; then
-          GetCommands \
-           | sed -e 's/make prefix=\/usr install/make prefix=\/usr DESTDIR="$CUR_DIR" install/' \
-           >> $Output
-        elif ! $installBinTarfile; then
-          GetCommands \
-           | sed -e '/configure_commands/i sed -i "s|prefix := /usr/local|prefix := /usr|g" Makefile' \
-           >> $Output
-        fi
-    ;;
     markupsafe)
         if $useDESTDIR; then
           GetCommands \
@@ -7923,11 +7954,13 @@ print $0
           fi
 	else # chapter08 and update
           if [ "$SYSTEMD" = yes ]; then
-            if $useDESTDIR; then
-              GetInternalCommands ncursesDestdirComms >> $Output
-            else
-              GetInternalCommands ncursesComms >> $Output
-            fi
+            GetCommands \
+             | sed -e 's/\$PWD\/dest/\$CUR_DIR/' \
+                   -e '/cp -av/i set +e' \
+	           -e 's/cp -av dest\/\* \//cp -av \$CUR_DIR\/usr\/* \/usr/' \
+                   -e 's/dest/\$CUR_DIR/g' \
+                   -e '/make distclean/,/cp -av lib\/lib*/d' \
+	     >> $Output
           else # sysv
              GetCommands \
               | sed -e '/make distclean/,/cp -av lib\/lib/d' \
@@ -8163,8 +8196,8 @@ print $0
              >> $Output
           else
             GetCommands \
-             | sed -e 's/--strip-components=1 //' \
-                   -e '/tar -xf/a # mv the man pages to the correct dir\npushd /usr/share/man/systemd-man-pages-* > /dev/null\nfor page in 1 3 5 7 8; do\n  cd man${page}\n  mv -v *.* /usr/share/man/man${page}\n  cd ..\ndone\ncd ..\nrm -rf -v systemd-man-pages-*\npopd > /dev/null' \
+             | sed -e 's/ --strip-components=1 //' \
+                   -e '/systemd-machine-id-setup/i # mv the man pages to the correct dir\npushd /usr/share/man/systemd-man-pages-* > /dev/null\nfor page in 1 3 5 7 8; do\n  cd man${page}\n  mv -v *.* /usr/share/man/man${page}\n  cd ..\ndone\ncd ..\nrm -rf -v systemd-man-pages-*\npopd > /dev/null' \
                    -e '/systemd-machine-id-setup/,/systemctl disable systemd-sysupdate/d' \
                    -e 's/\(.*\)&&$/\1/' \
              >> $Output
@@ -8173,6 +8206,7 @@ print $0
           GetCommands >> $Output
 	fi
     ;;
+
     sysvinit)
         GetCommands \
          | sed -e "/patch/a sed -i '/dev\\\/initctl/d' src/Makefile" \
@@ -8319,6 +8353,7 @@ print $0
         fi
     ;;
     *)
+#msg "at end of WriteScript, pkgname is $PkgName"
         GetCommands >> $Output
         return_val=$?
         if [ $return_val -eq $RETURN_PARAM ]; then # no build file
@@ -8514,7 +8549,6 @@ sed -e '/make -k check 2>&1 | tee glibc-check-log/d' \
     -e '/make -j1 test/d' \
     -e '/ninja_test/d' \
     -e '/make PERL5LIB=\$PWD\/tests/d' \
-    -e '/make localedata\/install-locales/d' \
     -e '/ln -sfv \/tools\/lib\/lib{blk,uu}id.so.1 lib/,/make LD_LIBRARY_PATH=\/tools\/lib check/d' \
     -i $scriptFile
 } # end removeTests
@@ -8678,11 +8712,15 @@ for currentChapter in $reqChaps; do
             case $FuncName in
                changingowner)
                  Output=${LFS}/${ch7asroot}
-                 msg "will write the script ${LFS}/${ch7asroot}"
+                 msg "will also write the script ${LFS}/${ch7asroot}"
                ;;
                chroot)
                  Output=${LFS}/${ch7chroot}
-                 msg "will write the script ${LFS}/${ch7chroot}"
+                 msg "and the script ${LFS}/${ch7chroot}"
+                 msg "*** NOTE for chapter 7 ***"
+                 msg "Run the script $ch7asroot first"
+                 msg "then run script $ch7chroot"
+                 msg "and finally $ch7script"
 # if you log out or reboot you need to mount the kernelfs again
 # so include some conditionals to look after this
                  cat ${LFS}/${ch7asroot} \
@@ -9117,6 +9155,47 @@ else # no dir binTarFileLoc
   return $RETURN_PARAM
 fi
 } # end getBinTarfileVers
+#
+getExtraFiles () {
+# $1 is the package name that needs a file. Give the pkgname that is used as the package user
+# $2 is the filename to get
+# $3 is the input filename if it's different from $2 - defaults to $2
+# $4 if true will prevent any cd line being written or any unzip command being written
+# NOTE - the URLs to download the files are stored in this function, you have to add new ones
+# *** TRY NOT TO PUT ACTUAL VERSION NUMBERS IN HERE ***
+local PkgName=$1
+local OPfile=$2
+local IPfile=${3:-${2}}
+local skipcd="${4:-false}"
+local URL
+#
+case $PkgName in
+   python3)
+     URL="https://www.python.org/ftp/python/doc/${pythonvers}"
+   ;;
+esac
+echo "if [ -e \${CUR_DIR}/${OPfile} ]; then
+# check that the file is not empty
+  if [ ! -s \${CUR_DIR}/${OPfile} ]; then # empty
+    echo file \${CUR_DIR}/${OPfile} is empty - aborting
+    exit 1
+  else
+    echo "${OPfile} already in current dir - will use that one"
+  fi
+elif [ -e \${sourceloc}/${OPfile} ]; then
+  cp -v \${sourceloc}/${OPfile} .
+else # can assume wget installed or it would have aborted above
+  wget \$wgetopts \$ncc -O $OPfile $URL/${IPfile}
+  if [ \$? -ne 0 ]; then
+    echo "Failed to download $OPfile"
+    echo "Aborting"
+    exit 1
+  fi
+fi" >> $Output
+if ! $skipcd; then
+  echo "cd \$(tar vxf \$outputFile | awk -F\/ 'END{print \$1}')" >> $Output
+fi
+} # end getExtraFiles
 #
 #**********************************************************************************
 #
@@ -9589,9 +9668,29 @@ if ! $haveCommands; then # need to dump the commands from the book
   fi
 #
 fi # test haveCommands is false
-# if chapter06 then add additional commands for openssl and wget
+# if chapter06 then add additional commands for libxcrypt, openssl and wget
 retVal=1
 if [ "$currentChapter" = chapter06 ]; then
+  declare -a libxcryptComs
+  libxcryptComs[0]="./configure --prefix=/usr                                \\"
+  libxcryptComs[1]="            --host=\$LFS_TGT                              \\"
+  libxcryptComs[2]="            --build=\$(build-aux/m4-autogen/config.guess) \\"
+  libxcryptComs[3]="            --enable-hashes=strong,glibc                 \\"
+  libxcryptComs[4]="            --enable-obsolete-api=no                     \\"
+  libxcryptComs[5]="            --disable-static                             \\"
+  libxcryptComs[6]="            --disable-failure-tokens"
+  libxcryptComs[7]="make"
+  libxcryptComs[8]="make DESTDIR=\$LFS install"
+  addCommands "libxcrypt" "058" "chapter06" libxcryptComs[@]
+  retVal=$?
+  if [ $retVal -eq $RETURN_PARAM ]; then
+    echo "didn't find ${DumpedCommands}/${currentChapter}"
+    echo "did you download the book?"
+    echo "*** failed to add the commands for libxcrypt"
+    echo "Investigate why this failed"
+  else
+    echo "Commands for libxcrypt are in ${DumpedCommands}/${currentChapter}"
+  fi
   declare -a opensslComs
   opensslComs[0]="./config --prefix=/usr         \\"
   opensslComs[1]="         --openssldir=/etc/ssl \\"
@@ -9601,7 +9700,7 @@ if [ "$currentChapter" = chapter06 ]; then
   opensslComs[5]="make"
   opensslComs[6]="sed -i '/INSTALL_LIBS/s/libcrypto.a libssl.a//' Makefile"
   opensslComs[7]="make DESTDIR=\$LFS MANSUFFIX=ssl install"
-  addCommands "openssl" "058" "chapter06" opensslComs[@]
+  addCommands "openssl" "059" "chapter06" opensslComs[@]
   retVal=$?
   if [ $retVal -eq $RETURN_PARAM ]; then
     echo "didn't find ${DumpedCommands}/${currentChapter}"
@@ -9625,7 +9724,7 @@ if [ "$currentChapter" = chapter06 ]; then
   wgetComs[10]="            --build=\$(build-aux/config.guess)"
   wgetComs[11]="make"
   wgetComs[12]="make DESTDIR=\$LFS install"
-  addCommands "wget" "059" "chapter06" wgetComs[@]
+  addCommands "wget" "060" "chapter06" wgetComs[@]
   retVal=$?
   if [ $retVal -eq $RETURN_PARAM ]; then
     echo "didn't find ${DumpedCommands}/${currentChapter}"
@@ -10128,7 +10227,7 @@ else
   if [ -d $SourceDir -a "$(ls -A $SourceDir)" ]; then # source dir exists and has files in it
     if $printit; then msg "source dir $SourceDir exists and contains files"; fi
 # get src versions for all the following plus any patch file names
-    listPkgs=(bzip2 coreutils dbus elfutils flit_core gcc glibc gmp grub installer kbd kernel mpc mpfr ncurses perl python3 readline shadow systemd tcl util-linux xz zstd)
+    listPkgs=(bash bzip2 coreutils dbus elfutils flit_core gcc glibc gmp grub installer kbd kernel mpc mpfr ncurses perl pkgconf python3 readline shadow systemd tcl util-linux xz zstd)
     if [ ! -f $WgetList ]; then
       echo "The required wget-list file does not exist"
       echo "You need the file $WgetList in order to continue"
@@ -10482,7 +10581,7 @@ else
              fi
            fi
          ;;
-         glibc) # needs a patch
+         glibc) # need a patch
            getglibcVers=false 
            if $single_package; then
              if [ "$SINGLE_PACKAGE" = glibc ]; then getglibcVers=true; fi
@@ -10490,15 +10589,24 @@ else
              getglibcVers=true
            fi
            if $getglibcVers; then
-             patchSearch='*glibc*.patch*'
+#             patchSearch='*glibc*upstream*.patch'
              if [ "$SOURCES" = atinstall ]; then # use md5sums
-               glibcPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+#               glibcUpstreamPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+#               ret_val=$?
+#               if [ $ret_val -eq $RETURN_PARAM ]; then
+#                 echo "failed to get glibc patch for glibc*upstream*.patch"
+#                 echo "*** Investigate ***"
+#               else
+#                 echo "glibc upstream patch is $glibcUpstreamPatch"
+#               fi
+               patchSearch='*glibc*fhs-1.patch'
+               glibcFhsPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
                ret_val=$?
                if [ $ret_val -eq $RETURN_PARAM ]; then
-                 echo "failed to get glibc patch name"
+                 echo "failed to get glibc patch for glibc*fhs-1.patch"
                  echo "*** Investigate ***"
                else
-                 echo "glibc patch is $glibcPatch"
+                 echo "glibc fhs patch is $glibcFhsPatch"
                fi
 # get the glibc pkg version
                searchStr="*glibc-*"
@@ -10511,15 +10619,25 @@ else
                  echo "Investigate why this didn't work"
                  exit 1
                fi
-             else # use the source dir to get the pkg version and patch name
-               glibcPatch=$(getPatchName "" $patchSearch $SourceDir)
-               glibcPatch=${glibcPatch##*/} # just the filename
+             else # use the source dir to get the pkg version and the patch name
+#               glibcUpstreamPatch=$(getPatchName "" $patchSearch $SourceDir)
+#               glibcUpstreamPatch=${glibcUpstreamPatch##*/} # just the filename
+#               ret_val=$?
+#               if [ $ret_val -eq $RETURN_PARAM ]; then
+#                 echo "failed to get glibc patch for glibc*upstream*.patch"
+#                 echo "*** Investigate ***"
+#               else
+#                 echo "glibc upstream patch is $glibcUpstreamPatch"
+#               fi
+               patchSearch='*glibc*fhs-1.patch'
+               glibcFhsPatch=$(getPatchName "" $patchSearch $SourceDir)
+               glibcFhsPatch=${glibcFhsPatch##*/} # just the filename
                ret_val=$?
                if [ $ret_val -eq $RETURN_PARAM ]; then
-                 echo "failed to get glibc patch name"
+                 echo "failed to get glibc patch for glibc*fhs-1.patch"
                  echo "*** Investigate ***"
                else
-                 echo "glibc patch is $glibcPatch"
+                 echo "glibc fhs patch is $glibcFhsPatch"
                fi
                rtrvers=""
                glibcvers=""
@@ -10585,27 +10703,27 @@ else
            fi
          ;;
          grub)
-           getgrubPatch=false
-           if $single_package; then
-             if [ "$SINGLE_PACKAGE" = grub ]; then getgrubPatch=true; fi
-           elif [ "$Chapter" != chapter07 -a "$Chapter" != chapter10 ]; then
-             getgrubPatch=true
-           fi
-           if $getgrubPatch; then
-             patchSearch='*grub*.patch*'
-             if [ "$SOURCES" = atinstall ]; then # use md5sums
-               grubPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
-             else # use the src dir
-               grubPatch=$(getPatchName "" $patchSearch $SourceDir)
-               grubPatch=${grubPatch##*/} # just the filename
-             fi
-             ret_val=$?
-             if [ $ret_val -eq $RETURN_PARAM ]; then
-               echo "failed to get grub patch name"
-               echo "*** Investigate ***"
-             else
-               echo "grub patch is $grubPatch"
-             fi
+#           getgrubPatch=false
+#           if $single_package; then
+#             if [ "$SINGLE_PACKAGE" = grub ]; then getgrubPatch=true; fi
+#           elif [ "$Chapter" != chapter07 -a "$Chapter" != chapter10 ]; then
+#             getgrubPatch=true
+#           fi
+#           if $getgrubPatch; then
+#             patchSearch='*grub*.patch*'
+#             if [ "$SOURCES" = atinstall ]; then # use md5sums
+#               grubPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+#             else # use the src dir
+#               grubPatch=$(getPatchName "" $patchSearch $SourceDir)
+#               grubPatch=${grubPatch##*/} # just the filename
+#             fi
+#             ret_val=$?
+#             if [ $ret_val -eq $RETURN_PARAM ]; then
+#               echo "failed to get grub patch name"
+#               echo "*** Investigate ***"
+#             else
+#               echo "grub patch is $grubPatch"
+#             fi
              searchStr="*grub-*"
              bzip2vers=""
              if [ "$SOURCES" = atinstall ]; then # use the md5sums file
@@ -10633,7 +10751,7 @@ else
                  if [ ! -z "$grubvers" ]; then echo "grub version is $grubvers"; fi
                fi
              fi
-           fi
+#           fi
          ;;
          installer|py3-installer)
            getinstallerVers=false
@@ -10940,6 +11058,30 @@ else
              fi
            fi
          ;;
+#         pkgconf) # no patch currently
+#           getpkgconfVers=false
+#           if $single_package; then
+#             if [ "$SINGLE_PACKAGE" = pkgconf ]; then getpkgconfVers=true; fi
+#           elif [ "$Chapter" != chapter07 -a "$Chapter" != chapter10 ]; then
+#             getpkgconfVers=true
+#           fi
+#           if $getpkgconfVers; then
+#             patchSearch='*pkgconf*.patch*'
+#             if [ "$SOURCES" = atinstall ]; then # use md5sums
+#               pkgconfPatch=$(getMd5sumInfo "patchName" srcFileName $patchSearch)
+#             else # use the src dir
+#               pkgconfPatch=$(getPatchName "" $patchSearch $SourceDir)
+#               pkgconfPatch=${pkgconfPatch##*/} # just the filename
+#             fi
+#             ret_val=$?
+#             if [ $ret_val -eq $RETURN_PARAM ]; then
+#               echo "failed to get pkgconf patch name"
+#               echo "*** Investigate ***"
+#             else
+#               echo "pkgconf patch is $pkgconfPatch"
+#             fi
+#           fi
+#         ;; 
          python3)
            getpythonVers=false
            if $single_package; then
