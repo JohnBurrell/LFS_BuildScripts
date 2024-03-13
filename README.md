@@ -20,7 +20,7 @@ If you don't want to use this name for the package user data, you can change the
 
 5. Run lfsa from your host. Make sure you have already done: export LFS=/mnt/lfs 
 
-6. Create a lfs user as per the book. Don't forget to set up the lfs environment too. Do: echo $LFS_TGT and make sure something sensible is returned.
+6. Create a lfs user as per the book. Don't forget to set up the lfs environment too. Do: echo $LFS_TGT and make sure something sensible is returned. It is typically 'x86_64-lfs-linux-gnu' for an x86_64 machine.
 
 7. Run lfsa as root.  Edit the config file to suit your requirements. If requested, the sources will be downloaded, the requested LFS book git cloned and you should create the following scripts in $LFS - chapter05.sh, chapter06.sh, chapter07-asroot.sh, chapter07-chroot.sh, chapter07.sh and chapter08.sh. I tried to get lfsa to make all the scripts in one go by setting WHICH_CHAPTER=all, but it's currently broken so you will have to create the scripts one at a time.
 
